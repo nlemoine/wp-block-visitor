@@ -1,0 +1,29 @@
+{
+    "name": "n5s/wp-block-visitor",
+    "description": "A powerful WordPress library to extract data from blocks or tranform blocks effortlessly.",
+    "type": "library",
+    "require-dev": {
+        "roots/wordpress": "^6.8",
+        "mantle-framework/testkit": "^1.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "n5s\\BlockVisitor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "n5s\\BlockVisitor\\Examples\\": "examples/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "alleyinteractive/composer-wordpress-autoloader": true,
+            "composer/installers": true,
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "ergebnis/composer-normalize": true,
+            "phpstan/extension-installer": true,
+            "roots/wordpress-core-installer": true
+        }
+    }
+}

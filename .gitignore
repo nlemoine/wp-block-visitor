@@ -1,0 +1,5 @@
+/vendor/
+/composer.lock
+/wordpress
+/tmp
+/.phpunit.result.cache
