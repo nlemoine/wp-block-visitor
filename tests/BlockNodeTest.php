@@ -342,22 +342,15 @@ class BlockNodeTest extends Unit_Test_Case
         ]);
         $node->wrapInnerContent('<div class="wp-block-group">');
 
-        $this->assertStringContainsString('<div class="wp-block-group">', (string) $node);
+        $this->assertStringContainsString('</div>', (string) $node);
 
+        // Wrap nested
         $node = BlockNode::create([
             'blockName' => 'core/group',
         ]);
-        $node->wrapInnerContent('<div class="wp-block-group"><div>');
+        $node->wrapInnerContent('<div class="wp-block-group"><h2>');
 
-        $this->assertStringContainsString('<div class="wp-block-group"><div>', (string) $node);
-
-        $node = BlockNode::create([
-            'blockName' => 'core/group',
-        ]);
-
-        // $node->wrapInnerContent('<div');
-
-        // $this->assertTrue('' === (string) $node);
+        $this->assertStringContainsString('</h2></div>', (string) $node);
     }
 
     private function getNestedBlocks(): BlockNode

@@ -216,6 +216,14 @@ final class BlockNode implements Stringable
         return $this;
     }
 
+    public function setInnerContent(string $html): self
+    {
+        $this->innerContent = [$html];
+        $this->updateInnerContent();
+
+        return $this;
+    }
+
     /**
      * Wraps the inner content of the block with the provided HTML.
      *
@@ -235,7 +243,7 @@ final class BlockNode implements Stringable
 
         array_unshift($this->innerContent, $html);
 
-        foreach ($tagClosers as $tagName) {
+        foreach (array_reverse($tagClosers) as $tagName) {
             $this->innerContent[] = sprintf("</%s>", $tagName);
         }
 
@@ -312,6 +320,13 @@ final class BlockNode implements Stringable
         foreach ($attributes as $attribute) {
             $this->removeAttribute($attribute);
         }
+
+        return $this;
+    }
+
+    public function clearAttributes(): self
+    {
+        $this->attrs = [];
 
         return $this;
     }
