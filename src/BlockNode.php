@@ -331,6 +331,24 @@ final class BlockNode implements Stringable
         return $this;
     }
 
+    public function addClassName(string $className): self
+    {
+        $existingClassNames = $this->getAttribute('className') ?? '';
+        $classNames = array_filter(array_merge(explode(' ', $existingClassNames), [$className]));
+        $this->setAttribute('className', implode(' ', $classNames));
+
+        return $this;
+    }
+
+    public function removeClassName(string $className): self
+    {
+        $existingClassNames = $this->getAttribute('className') ?? '';
+        $classNames = array_filter(explode(' ', $existingClassNames), static fn (string $name): bool => $name !== $className);
+        $this->setAttribute('className', implode(' ', $classNames));
+
+        return $this;
+    }
+
     public function getParent(): ?BlockNode
     {
         return $this->parent;
