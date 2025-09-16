@@ -416,7 +416,12 @@ final class BlockNode implements Stringable
     private function normalizeInnerContent(): void
     {
         if (count($this->innerContent) === 1) {
-            $this->innerContent = ["\n" . trim($this->innerContent[0] ?? '', "\n") . "\n"];
+            // If the single item is null (a block placeholder), wrap it with newlines
+            if ($this->innerContent[0] === null) {
+                $this->innerContent = ["\n", null, "\n"];
+            } else {
+                $this->innerContent = ["\n" . trim($this->innerContent[0] ?? '', "\n") . "\n"];
+            }
             return;
         }
 
