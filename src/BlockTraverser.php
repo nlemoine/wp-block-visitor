@@ -17,14 +17,12 @@ use n5s\BlockVisitor\Visitor\Traversal;
  * Within a pass, nodes are visited depth-first in document order: `enter()`
  * before the children, `leave()` after them. The root node itself is never visited.
  */
-final class BlockTraverser
+final readonly class BlockTraverser
 {
     /**
      * @var list<BlockVisitorInterface>
      */
-    private readonly array $visitors;
-
-    private bool $stopped = false;
+    private array $visitors;
 
     public function __construct(BlockVisitorInterface ...$visitors)
     {
@@ -51,15 +49,19 @@ final class BlockTraverser
         $root = $root instanceof BlockNode ? $root : BlockNode::createRoot($root);
 
         foreach ($this->visitors as $visitor) {
-            $this->stopped = false;
             $this->traverseChildren($root, $visitor);
         }
 
         return $root;
     }
 
-    private function traverseChildren(BlockNode $parent, BlockVisitorInterface $visitor): void
+    /**
+     * @return bool Whether the visitor asked to stop.
+     */
+    private function traverseChildren(BlockNode $parent, BlockVisitorInterface $visitor): bool
     {
+        $stopped = false;
+
         /** @var list<array{int, list<BlockNode>}> $replacements */
         $replacements = [];
 
@@ -67,7 +69,7 @@ final class BlockTraverser
             $result = $visitor->enter($child);
 
             if ($result === Traversal::Stop) {
-                $this->stopped = true;
+                $stopped = true;
                 break;
             }
 
@@ -83,18 +85,15 @@ final class BlockTraverser
                 $child = $result;
             }
 
-            if ($result !== Traversal::SkipChildren) {
-                $this->traverseChildren($child, $visitor);
-
-                if ($this->stopped) {
-                    break;
-                }
+            if ($result !== Traversal::SkipChildren && $this->traverseChildren($child, $visitor)) {
+                $stopped = true;
+                break;
             }
 
             $result = $visitor->leave($child);
 
             if ($result === Traversal::Stop) {
-                $this->stopped = true;
+                $stopped = true;
                 break;
             }
 
@@ -119,6 +118,8 @@ final class BlockTraverser
         foreach (\array_reverse($replacements) as [$index, $nodes]) {
             $parent->replaceInnerBlockAt($index, ...$nodes);
         }
+
+        return $stopped;
     }
 
     private function detached(BlockNode $parent, int $index, BlockNode $child): LogicException

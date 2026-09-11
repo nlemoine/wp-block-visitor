@@ -87,7 +87,9 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 
 `enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`.
 
-**Ancestors and siblings** are never mutated from a visitor. The traverser checks that the current node is still attached to its parent after each hook and throws a `LogicException` otherwise. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
+**Ancestors and siblings** are never mutated from a visitor. The traverser checks after each hook that the current node still sits where it did and throws a `LogicException` otherwise. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
+
+A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. Attaching a block somewhere takes it away from its former parent, and a block can never be added under itself or under one of its own descendants.
 
 Exceptions thrown by a visitor propagate unchanged. That is the way to abort the traversal of a document with an error. The tree is then in an undefined state: replacements staged by earlier siblings are not applied, so discard it rather than serializing it.
 
@@ -167,6 +169,10 @@ $block->setInnerContent(["\n<div>", null, "</div>\n"]);  // full chunk list
 $block->wrapInnerContent('<div class="wp-block-group">'); // closing tags are generated, void elements excepted
 $block->clearContent();                                   // drops the HTML, keeps the placeholders
 ```
+
+### Rejected input
+
+Block names must look like `paragraph` or `core/paragraph`, attributes must be a map rather than a list, and attribute values must be JSON-encodable. Each of those would otherwise produce a delimiter that WordPress reparses as something else, swallowing the blocks that follow. They raise `InvalidArgumentException`, or `RuntimeException` at serialization time for an unencodable value.
 
 ### Serialization
 

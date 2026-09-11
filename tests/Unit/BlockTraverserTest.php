@@ -523,7 +523,7 @@ HTML
         $visitor = $this->logger(leave: static fn (BlockNode $block): ?BlockNode => $block->getBlockName() === 'core/inner' ? $block->getParent()?->getParent() : null);
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('it is the block itself or one of its ancestors');
+        $this->expectExceptionMessageIsOrContains('that would close a cycle');
 
         (new BlockTraverser($visitor))->traverse('<!-- wp:outer --><div><!-- wp:mid --><div><!-- wp:inner /--></div><!-- /wp:mid --></div><!-- /wp:outer -->');
     }
@@ -569,6 +569,22 @@ HTML
 
         $this->assertSame(self::GROUP, (string) $root);
         $this->assertSame($root->getInnerBlocks()[0], $root->getInnerBlocks()[0]->getInnerBlocks()[0]->getParent());
+    }
+
+    public function testANestedTraversalDoesNotStopTheOuterPass(): void
+    {
+        $inner = $this->logger(enter: static fn (BlockNode $block): ?Traversal => $block->getBlockName() === 'core/paragraph' ? Traversal::Stop : null);
+        $outer = $this->logger(enter: static function (BlockNode $block) use ($inner): null {
+            if ($block->getBlockName() === 'core/group') {
+                (new BlockTraverser($inner))->traverse($block);
+            }
+
+            return null;
+        });
+
+        (new BlockTraverser($outer))->traverse(self::GROUP . "\n\n" . self::HEADING);
+
+        $this->assertContains('enter core/heading', $outer->log, 'the outer pass must survive the nested Stop');
     }
 
     // ------------------------------------------------------------------

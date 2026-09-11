@@ -9,6 +9,8 @@ use LogicException;
 use n5s\BlockVisitor\BlockNode;
 use n5s\BlockVisitor\Tests\TestCase;
 use OutOfRangeException;
+use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 
 final class BlockNodeTest extends TestCase
 {
@@ -846,7 +848,7 @@ final class BlockNodeTest extends TestCase
         $node = new BlockNode('core/group');
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('it is the block itself or one of its ancestors');
+        $this->expectExceptionMessageIsOrContains('that would close a cycle');
 
         $node->setInnerBlocks([$node]);
     }
@@ -976,6 +978,208 @@ final class BlockNodeTest extends TestCase
         } catch (OutOfRangeException $exception) {
             $this->assertSame('Cannot insert at index 5, valid indexes are 0 to 2.', $exception->getMessage());
         }
+    }
+
+    // ------------------------------------------------------------------
+    //  Guards against content corruption
+    // ------------------------------------------------------------------
+
+    public function testWrapInnerContentKeepsMarkupMadeOnlyOfVoidElements(): void
+    {
+        $node = new BlockNode('core/separator', [], [], '', ['<p>x</p>']);
+
+        $node->wrapInnerContent('<br>');
+
+        $this->assertSame(['<br>', '<p>x</p>'], $node->getInnerContent());
+    }
+
+    public function testWrapInnerContentWithoutAnyTagIsStillANoOp(): void
+    {
+        $node = new BlockNode('core/group', [], [], '', ['<p>x</p>']);
+
+        $node->wrapInnerContent('no tags here');
+
+        $this->assertSame(['<p>x</p>'], $node->getInnerContent());
+    }
+
+    public function testRenamingARootMakesItAnOrdinaryBlock(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:paragraph /-->');
+
+        $root->setBlockName('core/group');
+
+        $this->assertFalse($root->isRoot());
+        $this->assertSame('core/group', $root->toArray()['blockName']);
+        $this->assertSame('<!-- wp:group --><!-- wp:paragraph /--><!-- /wp:group -->', (string) $root);
+    }
+
+    #[DataProvider('blankMarkupProvider')]
+    public function testCreateFromStringRejectsBlankMarkup(string $markup): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        BlockNode::createFromString($markup);
+    }
+
+    /**
+     * @return \Iterator<int<0, max>, array{string}>
+     */
+    public static function blankMarkupProvider(): \Iterator
+    {
+        yield [''];
+        yield ['   '];
+        yield ["\n\n"];
+        yield ["\t"];
+    }
+
+    public function testAttributesMustBeAMap(): void
+    {
+        $node = new BlockNode('core/paragraph');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageIsOrContains('must be a map');
+
+        $node->setAttributes(['a', 'b']);
+    }
+
+    public function testANumericAttributeNameThatWouldMakeAListIsRejected(): void
+    {
+        $node = new BlockNode('core/paragraph');
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $node->setAttribute('0', 'a');
+    }
+
+    public function testAttributesStayAMapWhenAnotherKeyIsPresent(): void
+    {
+        $node = new BlockNode('core/paragraph', ['className' => 'x']);
+
+        $node->setAttribute('0', 'a');
+
+        $this->assertSame(['className' => 'x', 0 => 'a'], $node->getAttributes());
+    }
+
+    #[DataProvider('invalidBlockNameProvider')]
+    public function testABlockNameThatWouldBreakTheDelimiterIsRejected(string $blockName): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new BlockNode('core/paragraph'))->setBlockName($blockName);
+    }
+
+    /**
+     * @return \Iterator<int<0, max>, array{string}>
+     */
+    public static function invalidBlockNameProvider(): \Iterator
+    {
+        yield ['paragraph --><script>alert(1)</script><!-- wp:x'];
+        yield ['core/Paragraph'];
+        yield ['core paragraph'];
+        yield ['<script>'];
+        yield [''];
+        yield ['core/paragraph/extra'];
+    }
+
+    #[DataProvider('validBlockNameProvider')]
+    public function testOrdinaryBlockNamesAreAccepted(string $blockName): void
+    {
+        $this->assertSame($blockName, (new BlockNode('core/paragraph'))->setBlockName($blockName)->getBlockName());
+    }
+
+    /**
+     * @return \Iterator<int<0, max>, array{string}>
+     */
+    public static function validBlockNameProvider(): \Iterator
+    {
+        yield ['paragraph'];
+        yield ['core/paragraph'];
+        yield ['vendor/my-block'];
+        yield ['para--graph'];
+        yield ['a/b'];
+    }
+
+    public function testAFreeformNodeKeepsItsNullName(): void
+    {
+        $this->assertNull((new BlockNode())->getBlockName());
+        $this->assertTrue(BlockNode::createRoot('')->isRoot());
+    }
+
+    public function testAttributesThatCannotBeEncodedAreReportedInsteadOfDropped(): void
+    {
+        $node = new BlockNode('core/paragraph', ['className' => 'keep-me'], [], '', ['<p>hi</p>']);
+        $node->setAttribute('bad', \INF);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageIsOrContains('JSON cannot encode');
+
+        $node->__toString();
+    }
+
+    // ------------------------------------------------------------------
+    //  One parent per block, no cycles
+    // ------------------------------------------------------------------
+
+    public function testAttachingABlockTakesItAwayFromItsFormerParent(): void
+    {
+        $a = BlockNode::createFromString('<!-- wp:group --><div><!-- wp:paragraph /--></div><!-- /wp:group -->');
+        $b = BlockNode::createFromString('<!-- wp:columns --><div></div><!-- /wp:columns -->');
+        $moved = $a->getInnerBlocks()[0];
+
+        $b->appendInnerBlock($moved);
+
+        $this->assertNull($a->indexOf($moved), 'the former parent must not keep listing it');
+        $this->assertSame([], $a->getInnerBlocks());
+        $this->assertSame($b, $moved->getParent());
+        $this->assertSame([$moved], $b->getInnerBlocks());
+    }
+
+    public function testABlockCannotBeAddedUnderOneOfItsOwnDescendants(): void
+    {
+        $outer = BlockNode::createFromString('<!-- wp:outer --><div><!-- wp:mid --><div><!-- wp:inner /--></div><!-- /wp:mid --></div><!-- /wp:outer -->');
+        $inner = $outer->getInnerBlocks()[0]->getInnerBlocks()[0];
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessageIsOrContains('that would close a cycle');
+
+        $inner->appendInnerBlock($outer);
+    }
+
+    public function testARefusedChildLeavesTheTreeUntouched(): void
+    {
+        $outer = BlockNode::createFromString('<!-- wp:outer --><div><!-- wp:inner /--></div><!-- /wp:outer -->');
+        $inner = $outer->getInnerBlocks()[0];
+        $content = $inner->getInnerContent();
+
+        try {
+            $inner->appendInnerBlock($outer);
+            $this->fail('Expected a LogicException');
+        } catch (LogicException) {
+        }
+
+        $this->assertSame([], $inner->getInnerBlocks());
+        $this->assertSame($content, $inner->getInnerContent());
+        $this->assertSame([$inner], $outer->getInnerBlocks());
+    }
+
+    public function testPlaceholdersAreFoundFromEitherEndOfTheContent(): void
+    {
+        $children = \array_map(static fn (int $i): BlockNode => new BlockNode("core/n{$i}"), \range(0, 9));
+        $node = new BlockNode('core/group', [], $children, '', ['<div>', '</div>']);
+
+        // Exercises both scan directions: low indexes scan forward, high indexes scan backward.
+        foreach ([0, 1, 4, 5, 8, 9] as $index) {
+            $node->replaceInnerBlockAt($index, new BlockNode("core/r{$index}"));
+        }
+
+        $this->assertSame(
+            ['core/r0', 'core/r1', 'core/n2', 'core/n3', 'core/r4', 'core/r5', 'core/n6', 'core/n7', 'core/r8', 'core/r9'],
+            $this->names($node)
+        );
+        $this->assertCount(10, \array_filter($node->getInnerContent(), static fn (?string $chunk): bool => $chunk === null));
+        $this->assertSame('<div>', $node->getInnerContent()[0]);
+        $content = $node->getInnerContent();
+        $this->assertSame('</div>', \end($content));
     }
 
     // ------------------------------------------------------------------
