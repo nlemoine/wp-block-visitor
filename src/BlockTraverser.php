@@ -60,10 +60,10 @@ final class BlockTraverser
 
     private function traverseChildren(BlockNode $parent, BlockVisitorInterface $visitor): void
     {
-        /** @var list<array{BlockNode, list<BlockNode>}> $replacements */
+        /** @var list<array{int, list<BlockNode>}> $replacements */
         $replacements = [];
 
-        foreach ($parent->getInnerBlocks() as $child) {
+        foreach ($parent->getInnerBlocks() as $index => $child) {
             $result = $visitor->enter($child);
 
             if ($result === Traversal::Stop) {
@@ -75,7 +75,7 @@ final class BlockTraverser
                 throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
             }
 
-            $index = $this->indexOf($parent, $child);
+            $this->assertAttached($parent, $index, $child);
             if ($result instanceof BlockNode && $result !== $child) {
                 $parent->replaceInnerBlockAt($index, $result);
                 $child = $result;
@@ -100,29 +100,36 @@ final class BlockTraverser
                 throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
             }
 
-            $this->indexOf($parent, $child);
+            $this->assertAttached($parent, $index, $child);
 
             if ($result === Traversal::Remove) {
-                $replacements[] = [$child, []];
+                $replacements[] = [$index, []];
             } elseif (\is_array($result)) {
-                $replacements[] = [$child, \array_values($result)];
+                $replacements[] = [$index, \array_values($result)];
             } elseif ($result instanceof BlockNode && $result !== $child) {
-                $replacements[] = [$child, [$result]];
+                $replacements[] = [$index, [$result]];
             }
         }
 
-        foreach ($replacements as [$original, $nodes]) {
-            $parent->replaceInnerBlockAt($this->indexOf($parent, $original), ...$nodes);
+        // Applied last to first so that an expansion does not shift the indexes still to apply.
+        foreach (\array_reverse($replacements) as [$index, $nodes]) {
+            $parent->replaceInnerBlockAt($index, ...$nodes);
         }
     }
 
-    private function indexOf(BlockNode $parent, BlockNode $child): int
+    /**
+     * Checks that the node visited at the given index is still there, in O(1).
+     */
+    private function assertAttached(BlockNode $parent, int $index, BlockNode $child): void
     {
-        return $parent->indexOf($child) ?? throw new LogicException(\sprintf(
-            'Block "%s" is no longer a child of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
-            $child->getBlockName() ?? '(freeform)',
-            $parent->getBlockName() ?? '(freeform)',
-        ));
+        if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
+            throw new LogicException(\sprintf(
+                'Block "%s" is no longer child %d of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
+                $child->getBlockName() ?? '(freeform)',
+                $index,
+                $parent->getBlockName() ?? '(freeform)',
+            ));
+        }
     }
 
     /**

@@ -214,9 +214,9 @@ Run the tests before (`composer install && composer test`) so a WordPress instan
 |---|---|---|---|
 | Collect attachment IDs | 21.5 ms, 15.4 MB | 19.0 ms, 8.1 MB | 14.7 ms, 14.3 MB |
 | Count block types | 21.0 ms, 15.4 MB | 18.3 ms, 8.1 MB | 14.3 ms, 14.3 MB |
-| Add a class to every image and serialize | 26.5 ms, 15.4 MB | 20.6 ms, 8.9 MB | 19.3 ms, 16.3 MB |
+| Add a class to every image and serialize | 24.1 ms, 15.4 MB | 20.7 ms, 8.9 MB | 18.6 ms, 16.3 MB |
 
-The memory column is the process peak, about 6.8 MB of which is the PHP process itself. So a tree of `BlockNode` costs about as much as the `parse_blocks()` array, while the processor never materializes the tree. On time the library pays 10 to 45 percent over the alternatives for the object model, the visitor dispatch and the placeholder bookkeeping.
+The memory column is the process peak, about 6.8 MB of which is the PHP process itself. So a tree of `BlockNode` costs about as much as the `parse_blocks()` array, while the processor never materializes the tree. On time the library pays 10 to 45 percent over the alternatives for the object model, the visitor dispatch and the placeholder bookkeeping. Of the 21 ms of the first row, 12.6 ms are `parse_blocks()` itself, 2.8 ms build the tree, 2.9 ms run the visitor over 2000 nodes and the rest serializes. The per-node cost is constant: a parent with 5000 children traverses in under 4 ms.
 
 What the numbers do not show is that the three are not interchangeable. `WP_Block_Processor` reads; a modification is a span you splice into the source string yourself, with the delimiter re-serialized by hand, which is what the benchmark does. `parse_blocks()` gives you the tree but nothing keeps `innerContent` in sync when you insert or remove children. This library is the one you reach for when a visitor has to restructure content safely.
 

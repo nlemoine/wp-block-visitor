@@ -486,7 +486,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('no longer a child of "core/group"');
+        $this->expectExceptionMessageIsOrContains('no longer child 0 of "core/group"');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }

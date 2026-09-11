@@ -573,13 +573,22 @@ final class BlockNode implements Stringable
         ];
     }
 
+    /**
+     * Serializes like `serialize_block()`, straight from the nodes.
+     */
     public function __toString(): string
     {
         if ($this->isRoot) {
             return \implode('', \array_map(static fn (BlockNode $block): string => (string) $block, $this->innerBlocks));
         }
 
-        return (string) \serialize_block($this->toArray());
+        $content = '';
+        $index = 0;
+        foreach ($this->innerContent as $chunk) {
+            $content .= $chunk ?? (string) $this->innerBlocks[$index++];
+        }
+
+        return (string) \get_comment_delimited_block_content($this->blockName, $this->attrs, $content);
     }
 
     // -------------------------------------------------------------------------
