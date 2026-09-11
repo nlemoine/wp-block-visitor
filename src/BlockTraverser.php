@@ -65,7 +65,10 @@ final readonly class BlockTraverser
         /** @var list<array{int, list<BlockNode>}> $replacements */
         $replacements = [];
 
-        foreach ($parent->getInnerBlocks() as $index => $child) {
+        $children = $parent->getInnerBlocks();
+        $count = \count($children);
+
+        foreach ($children as $index => $child) {
             $result = $visitor->enter($child);
 
             if ($result === Traversal::Stop) {
@@ -77,8 +80,9 @@ final readonly class BlockTraverser
                 throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
             }
 
-            if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
-                throw $this->detached($parent, $index, $child);
+            $children = $parent->getInnerBlocks();
+            if (\count($children) !== $count || ($children[$index] ?? null) !== $child) {
+                throw $this->touched($parent, $index, $child);
             }
             if ($result instanceof BlockNode && $result !== $child) {
                 $parent->replaceInnerBlockAt($index, $result);
@@ -101,8 +105,9 @@ final readonly class BlockTraverser
                 throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
             }
 
-            if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
-                throw $this->detached($parent, $index, $child);
+            $children = $parent->getInnerBlocks();
+            if (\count($children) !== $count || ($children[$index] ?? null) !== $child) {
+                throw $this->touched($parent, $index, $child);
             }
 
             if ($result === Traversal::Remove) {
@@ -122,13 +127,17 @@ final readonly class BlockTraverser
         return $stopped;
     }
 
-    private function detached(BlockNode $parent, int $index, BlockNode $child): LogicException
+    /**
+     * Built only when a hook touched the children of the parent: the list changed size or the
+     * node visited at the given index is no longer there. The check itself is inline, in O(1).
+     */
+    private function touched(BlockNode $parent, int $index, BlockNode $child): LogicException
     {
         return new LogicException(\sprintf(
-            'Block "%s" is no longer child %d of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
-            $child->getBlockName() ?? '(freeform)',
-            $index,
+            'The children of "%s" changed while visiting its child %d "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
             $parent->getBlockName() ?? '(freeform)',
+            $index,
+            $child->getBlockName() ?? '(freeform)',
         ));
     }
 

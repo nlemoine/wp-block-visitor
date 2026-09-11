@@ -486,7 +486,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('no longer child 0 of "core/group"');
+        $this->expectExceptionMessageIsOrContains('The children of "core/group" changed');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -585,6 +585,38 @@ HTML
         (new BlockTraverser($outer))->traverse(self::GROUP . "\n\n" . self::HEADING);
 
         $this->assertContains('enter core/heading', $outer->log, 'the outer pass must survive the nested Stop');
+    }
+
+    public function testAppendingToAnAncestorFromAVisitorIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static function (BlockNode $block): null {
+            if (\str_contains($block->getInnerHTML(), '<p>A</p>')) {
+                $block->getParent()?->appendInnerBlock(BlockNode::createFromString('<!-- wp:late /-->'));
+            }
+
+            return null;
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessageIsOrContains('The children of "core/group" changed');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testMutatingAGrandparentFromAVisitorIsRejected(): void
+    {
+        $visitor = $this->logger(enter: static function (BlockNode $block): null {
+            if ($block->getBlockName() === 'core/paragraph') {
+                $block->getParent()?->getParent()?->appendInnerBlock(BlockNode::createFromString('<!-- wp:late /-->'));
+            }
+
+            return null;
+        });
+        $root = BlockNode::createRoot(self::GROUP);
+
+        $this->expectException(LogicException::class);
+
+        (new BlockTraverser($visitor))->traverse($root);
     }
 
     // ------------------------------------------------------------------

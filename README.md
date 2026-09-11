@@ -87,7 +87,7 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 
 `enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`.
 
-**Ancestors and siblings** are never mutated from a visitor. The traverser checks after each hook that the current node still sits where it did and throws a `LogicException` otherwise. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
+**Ancestors and siblings** are never mutated from a visitor. After each hook the traverser checks that the parent's children list has the same size and still holds the current node at the same place, and throws a `LogicException` otherwise. That covers removals, insertions and reorderings anywhere in the list, from the current node's hooks or from its descendants'. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
 
 A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. Attaching a block somewhere takes it away from its former parent, and a block can never be added under itself or under one of its own descendants.
 
