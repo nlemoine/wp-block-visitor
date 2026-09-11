@@ -5,44 +5,44 @@ declare(strict_types=1);
 namespace n5s\BlockVisitor\Examples;
 
 use n5s\BlockVisitor\BlockNode;
-use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
+use n5s\BlockVisitor\Visitor\AbstractBlockVisitor;
+use n5s\BlockVisitor\Visitor\Traversal;
 use Stringable;
 
-class DepthVisitor implements BlockVisitorInterface, Stringable
+/**
+ * Read-only visitor listing every block with its depth.
+ */
+class DepthVisitor extends AbstractBlockVisitor implements Stringable
 {
     /**
-     * @var array<string, array{
-     *     prefix: string,
-     *     blockName: string,
-     *     depth: int
-     * }>
+     * @var list<array{blockName: string, depth: int}>
      */
     private array $output = [];
 
-    public function enter(BlockNode $block): BlockNode|array|null
+    public function enter(BlockNode $block): BlockNode|Traversal|null
     {
-        if ($block->getBlockName() === null) {
-            return $block;
+        $blockName = $block->getBlockName();
+        if ($blockName === null) {
+            return null;
         }
 
         $this->output[] = [
-            'prefix' => str_repeat(' ', $block->getDepth()),
-            'blockName' => $block->getBlockName(),
+            'blockName' => $blockName,
             'depth' => $block->getDepth(),
         ];
 
-        return $block;
-    }
-
-    public function leave(BlockNode $block): BlockNode|array|null
-    {
-        return $block;
+        return null;
     }
 
     public function __toString(): string
     {
         return implode("\n", array_map(
-            static fn (array $item): string => sprintf("%s->%d|%s", $item['prefix'], $item['depth'], $item['blockName']),
+            static fn (array $item): string => \sprintf(
+                '%s->%d|%s',
+                str_repeat(' ', $item['depth']),
+                $item['depth'],
+                $item['blockName']
+            ),
             $this->output
         ));
     }

@@ -6,15 +6,16 @@ namespace n5s\BlockVisitor\Examples;
 
 use JsonException;
 use n5s\BlockVisitor\BlockNode;
-use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
+use n5s\BlockVisitor\Visitor\AbstractBlockVisitor;
+use n5s\BlockVisitor\Visitor\Traversal;
 use Stringable;
 use WP_CLI;
 
-class TreeVisitor implements BlockVisitorInterface, Stringable
+class TreeVisitor extends AbstractBlockVisitor implements Stringable
 {
-    private const JSON_HIGHLIGHT_REGEX = '/(?<key>"[^"]*")\s*:\s*|(?<string>"[^"\\\\]*(?:\\\\.[^"\\\\]*)*")|(?<number>-?\d+(?:\.\d+)?)|\b(?<bool>true|false)\b|\b(?<null>null)\b|(?<brackets>[{}[\]])|(?<colon>:)|(?<comma>,)/';
+    private const string JSON_HIGHLIGHT_REGEX = '/(?<key>"[^"]*")\s*:\s*|(?<string>"[^"\\\\]*(?:\\\\.[^"\\\\]*)*")|(?<number>-?\d+(?:\.\d+)?)|\b(?<bool>true|false)\b|\b(?<null>null)\b|(?<brackets>[{}[\]])|(?<colon>:)|(?<comma>,)/';
 
-    private const COLOR_SCHEMES = [
+    private const array COLOR_SCHEMES = [
         'key' => '%g',
         'string' => '%y',
         'number' => '%b',
@@ -30,25 +31,22 @@ class TreeVisitor implements BlockVisitorInterface, Stringable
      */
     private array $output = [];
 
-    private bool $useColors;
-
     /**
      * @var bool[]
      */
     private array $isLastChildStack = [];
 
-    public function __construct(bool $useColors = true)
+    public function __construct(private readonly bool $useColors = true)
     {
-        $this->useColors = $useColors;
     }
 
-    public function enter(BlockNode $node): BlockNode|array|null
+    public function enter(BlockNode $node): BlockNode|Traversal|null
     {
         // We need to manage the stack for all nodes to keep the tree structure correct for children.
         $parent = $node->getParent();
-        if ($parent) { // Root has no parent, so stack is empty for its direct children
+        if ($parent instanceof BlockNode) { // Root has no parent, so stack is empty for its direct children
             $siblings = $parent->getInnerBlocks();
-            $isLast = !empty($siblings) && end($siblings) === $node;
+            $isLast = $siblings !== [] && end($siblings) === $node;
             $this->isLastChildStack[] = $isLast;
         }
 
@@ -59,27 +57,27 @@ class TreeVisitor implements BlockVisitorInterface, Stringable
 
             $coloredBlockName = $this->colorize("%m" . $blockName . "%n");
             $attrs = $node->getAttributes();
-            $attrsPreview = !empty($attrs) ? " " . $this->highlightJson($attrs) : "";
+            $attrsPreview = $attrs !== [] ? " " . $this->highlightJson($attrs) : "";
 
             $this->output[] = $prefix . $coloredBlockName . $attrsPreview . "\n";
         }
 
-        return $node;
+        return null;
     }
 
-    public function leave(BlockNode $node): BlockNode|array|null
+    public function leave(BlockNode $node): BlockNode|array|Traversal|null
     {
         // Pop from stack for any node that had a parent
-        if ($node->getParent()) {
+        if ($node->getParent() instanceof BlockNode) {
             array_pop($this->isLastChildStack);
         }
-        return $node;
+        return null;
     }
 
     private function getPrefix(): string
     {
         $prefix = '';
-        $depth = count($this->isLastChildStack);
+        $depth = \count($this->isLastChildStack);
 
         if ($depth === 0) {
             return '';
@@ -112,13 +110,12 @@ class TreeVisitor implements BlockVisitorInterface, Stringable
         return (string) preg_replace_callback(
             self::JSON_HIGHLIGHT_REGEX,
             $this->replaceCallback(...),
-            json_encode($attrs, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
+            json_encode($attrs, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR)
         );
     }
 
     /**
      * @param array<string, string> $matches
-     * @return string
      */
     private function replaceCallback(array $matches): string
     {

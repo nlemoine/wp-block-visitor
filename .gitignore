@@ -1,5 +1,14 @@
-/vendor/
+# Composer
+/vendor
 /composer.lock
+
+# QA
+/phpstan.neon
+/phpcs.xml
+/phpunit.xml
+/infection.json5
+/.phpunit.result.cache
+/.phpunit.cache
+
 /wordpress
 /tmp
-/.phpunit.result.cache

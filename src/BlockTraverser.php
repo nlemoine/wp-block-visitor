@@ -4,30 +4,35 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor;
 
+use LogicException;
 use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
 use n5s\BlockVisitor\Visitor\PrioritizedVisitorInterface;
-use n5s\BlockVisitor\Visitor\TransformingBlockVisitorInterface;
+use n5s\BlockVisitor\Visitor\Traversal;
 
 /**
- * Traverses a tree of BlockNode objects and applies visitors to each node.
+ * Applies visitors to a block tree.
+ *
+ * Each visitor gets its own full pass over the tree, in priority order then
+ * registration order, so a visitor sees the result of the previous ones.
+ * Within a pass, nodes are visited depth-first in document order: `enter()`
+ * before the children, `leave()` after them. The root node itself is never visited.
  */
 final class BlockTraverser
 {
     /**
-     * @var array<BlockVisitorInterface|TransformingBlockVisitorInterface>
+     * @var list<BlockVisitorInterface>
      */
-    private array $visitors;
+    private readonly array $visitors;
 
-    /**
-     * @param BlockVisitorInterface|TransformingBlockVisitorInterface ...$visitors The visitors to apply to the nodes.
-     */
-    public function __construct(BlockVisitorInterface|TransformingBlockVisitorInterface ...$visitors)
+    private bool $stopped = false;
+
+    public function __construct(BlockVisitorInterface ...$visitors)
     {
-        $this->visitors = $visitors;
+        $this->visitors = $this->sortByPriority(\array_values($visitors));
     }
 
     /**
-     * @return array<BlockVisitorInterface|TransformingBlockVisitorInterface>
+     * @return list<BlockVisitorInterface>
      */
     public function getVisitors(): array
     {
@@ -35,122 +40,104 @@ final class BlockTraverser
     }
 
     /**
-     * Traverses the block tree and applies the visitors to each node.
-     * The root node will not be visited, only its children.
+     * Traverses the tree and returns its (mutated) root.
      *
-     * @param BlockNode|string $node The root node of the tree to traverse.
-     * @return BlockNode The modified root node.
+     * The root itself is never visited, only its descendants are. That holds for a
+     * node created by `BlockNode::createRoot()` as well as for any other node passed
+     * here. If a visitor throws, the tree is left in an undefined state: discard it.
      */
-    public function traverse(string|BlockNode $node): BlockNode
+    public function traverse(string|BlockNode $root): BlockNode
     {
-        $root = $node instanceof BlockNode ? $node : BlockNode::createRoot($node);
-
-        $this->sortVisitors();
-
-        $innerBlocks = $root->getInnerBlocks();
+        $root = $root instanceof BlockNode ? $root : BlockNode::createRoot($root);
 
         foreach ($this->visitors as $visitor) {
-            $newInnerBlocks = [];
-            foreach ($innerBlocks as $child) {
-                $result = $this->traverseWithVisitor($child, $visitor);
-                if ($result === null) {
-                    continue;
-                }
-
-                if (\is_array($result)) {
-                    \array_push($newInnerBlocks, ...$result);
-                } else {
-                    $newInnerBlocks[] = $result;
-                }
-            }
-            $innerBlocks = $newInnerBlocks;
+            $this->stopped = false;
+            $this->traverseChildren($root, $visitor);
         }
-
-        $root->setInnerBlocks($innerBlocks);
 
         return $root;
     }
 
-    /**
-     * Traverses a node with a single visitor.
-     *
-     * @param BlockNode                                                 $node    The node to traverse.
-     * @param BlockVisitorInterface|TransformingBlockVisitorInterface $visitor The visitor to apply.
-     *
-     * @return BlockNode|BlockNode[]|null The modified node, an array of nodes, or null if it was removed.
-     */
-    private function traverseWithVisitor(
-        BlockNode $node,
-        BlockVisitorInterface|TransformingBlockVisitorInterface $visitor
-    ): BlockNode|array|null {
-        $result = $visitor instanceof TransformingBlockVisitorInterface
-            ? $visitor->transform($node)
-            : $visitor->enter($node);
+    private function traverseChildren(BlockNode $parent, BlockVisitorInterface $visitor): void
+    {
+        /** @var list<array{BlockNode, list<BlockNode>}> $replacements */
+        $replacements = [];
 
-        if ($result === null) {
-            return null;
-        }
+        foreach ($parent->getInnerBlocks() as $child) {
+            $result = $visitor->enter($child);
 
-        if (\is_array($result)) {
-            $newNodes = [];
-            foreach ($result as $newNode) {
-                if ($newNode instanceof BlockNode) {
-                    // When enter() returns multiple nodes, we can't call leave() on the original node.
-                    // Instead, we traverse the children of each new node.
-                    $newNode->setInnerBlocks($this->traverseChildrenWithVisitor($newNode, $visitor));
-                    $newNodes[] = $newNode;
+            if ($result === Traversal::Stop) {
+                $this->stopped = true;
+                break;
+            }
+
+            if ($result === Traversal::Remove) {
+                throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
+            }
+
+            $index = $this->indexOf($parent, $child);
+            if ($result instanceof BlockNode && $result !== $child) {
+                $parent->replaceInnerBlockAt($index, $result);
+                $child = $result;
+            }
+
+            if ($result !== Traversal::SkipChildren) {
+                $this->traverseChildren($child, $visitor);
+
+                if ($this->stopped) {
+                    break;
                 }
             }
-            return $newNodes;
+
+            $result = $visitor->leave($child);
+
+            if ($result === Traversal::Stop) {
+                $this->stopped = true;
+                break;
+            }
+
+            if ($result === Traversal::SkipChildren) {
+                throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
+            }
+
+            $this->indexOf($parent, $child);
+
+            if ($result === Traversal::Remove) {
+                $replacements[] = [$child, []];
+            } elseif (\is_array($result)) {
+                $replacements[] = [$child, \array_values($result)];
+            } elseif ($result instanceof BlockNode && $result !== $child) {
+                $replacements[] = [$child, [$result]];
+            }
         }
 
-        $node = $result;
-
-        $node->setInnerBlocks($this->traverseChildrenWithVisitor($node, $visitor));
-
-        if ($visitor instanceof TransformingBlockVisitorInterface) {
-            return $node;
+        foreach ($replacements as [$original, $nodes]) {
+            $parent->replaceInnerBlockAt($this->indexOf($parent, $original), ...$nodes);
         }
+    }
 
-        return $visitor->leave($node);
+    private function indexOf(BlockNode $parent, BlockNode $child): int
+    {
+        return $parent->indexOf($child) ?? throw new LogicException(\sprintf(
+            'Block "%s" is no longer a child of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
+            $child->getBlockName() ?? '(freeform)',
+            $parent->getBlockName() ?? '(freeform)',
+        ));
     }
 
     /**
-     * Traverses the children of a node.
-     *
-     * @param BlockNode                                                 $node    The parent node.
-     * @param BlockVisitorInterface|TransformingBlockVisitorInterface $visitor The visitor to apply.
-     *
-     * @return BlockNode[] The modified list of children.
+     * @param list<BlockVisitorInterface> $visitors
+     * @return list<BlockVisitorInterface>
      */
-    private function traverseChildrenWithVisitor(BlockNode $node, BlockVisitorInterface|TransformingBlockVisitorInterface $visitor): array
+    private function sortByPriority(array $visitors): array
     {
-        $newChildren = [];
-        foreach ($node->getInnerBlocks() as $child) {
-            $result = $this->traverseWithVisitor($child, $visitor);
-            if ($result === null) {
-                continue;
-            }
-
-            if (\is_array($result)) {
-                \array_push($newChildren, ...$result);
-            } else {
-                $newChildren[] = $result;
-            }
-        }
-        return $newChildren;
-    }
-
-    /**
-     * Sorts visitors by priority.
-     */
-    private function sortVisitors(): void
-    {
-        usort($this->visitors, static function (BlockVisitorInterface|TransformingBlockVisitorInterface $a, BlockVisitorInterface|TransformingBlockVisitorInterface $b): int {
+        \usort($visitors, static function (BlockVisitorInterface $a, BlockVisitorInterface $b): int {
             $priorityA = $a instanceof PrioritizedVisitorInterface ? $a->getPriority() : 0;
             $priorityB = $b instanceof PrioritizedVisitorInterface ? $b->getPriority() : 0;
 
             return $priorityB <=> $priorityA;
         });
+
+        return $visitors;
     }
 }

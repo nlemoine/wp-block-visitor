@@ -2,10 +2,30 @@
     "name": "n5s/wp-block-visitor",
     "description": "A powerful WordPress library to extract data from blocks or tranform blocks effortlessly.",
     "type": "library",
-    "require-dev": {
-        "roots/wordpress": "^6.8",
-        "mantle-framework/testkit": "^1.7"
+    "authors": [
+        {
+            "name": "Nicolas Lemoine",
+            "email": "nico@n5s.dev",
+            "homepage": "https://n5s.dev/"
+        }
+    ],
+    "require": {
+        "php": ">=8.3"
     },
+    "require-dev": {
+        "ergebnis/composer-normalize": "^2.48",
+        "infection/infection": "^0.35",
+        "mantle-framework/testkit": "^1.20",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.1",
+        "rector/rector": "^2.2",
+        "roots/wordpress": "^6.8 || ^7",
+        "slevomat/coding-standard": "^8.22",
+        "syde/phpcs": "^1.0",
+        "szepeviktor/phpstan-wordpress": "^2.0"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "autoload": {
         "psr-4": {
             "n5s\\BlockVisitor\\": "src/"
@@ -13,6 +33,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "n5s\\BlockVisitor\\Tests\\": "tests/",
             "n5s\\BlockVisitor\\Examples\\": "examples/"
         }
     },
@@ -22,8 +43,39 @@
             "composer/installers": true,
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "ergebnis/composer-normalize": true,
+            "infection/extension-installer": true,
             "phpstan/extension-installer": true,
             "roots/wordpress-core-installer": true
-        }
+        },
+        "process-timeout": 1800
+    },
+    "scripts": {
+        "coverage": "@php -d pcov.enabled=1 -d pcov.directory=src vendor/bin/phpunit --coverage-text --coverage-html tmp/coverage/html",
+        "cs": "phpcs",
+        "cs:fix": "phpcbf",
+        "infection": "@php -d memory_limit=-1 vendor/bin/infection --threads=max --with-uncovered",
+        "infection:diff": "@php -d memory_limit=-1 vendor/bin/infection --threads=max --with-uncovered --git-diff-base=origin/main --git-diff-lines --logger-github",
+        "phpstan": "@php -d memory_limit=-1 vendor/bin/phpstan analyse",
+        "qa": [
+            "@cs",
+            "@phpstan",
+            "@rector",
+            "@test"
+        ],
+        "rector": "rector process --dry-run",
+        "rector:fix": "rector process",
+        "test": "phpunit"
+    },
+    "scripts-descriptions": {
+        "coverage": "Report line coverage (text summary plus an HTML report in tmp/coverage/html).",
+        "cs": "Check coding standards with PHP_CodeSniffer.",
+        "cs:fix": "Auto-fix coding standard violations.",
+        "infection": "Run mutation testing on the whole codebase.",
+        "infection:diff": "Run mutation testing on lines changed against origin/main.",
+        "phpstan": "Run static analysis.",
+        "qa": "Run the full QA suite (cs, phpstan, rector dry-run, tests).",
+        "rector": "Preview Rector changes without writing them.",
+        "rector:fix": "Apply Rector changes.",
+        "test": "Run the PHPUnit test suites."
     }
 }

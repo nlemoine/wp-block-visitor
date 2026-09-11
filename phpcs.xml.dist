@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<ruleset>
+    <rule ref="Syde-Extra" />
+
+    <config name="testVersion" value="8.3-" />
+
+    <file>./src</file>
+    <file>./tests</file>
+    <file>./examples</file>
+
+    <arg name="colors" />
+    <arg value="sp" />
+
+    <config name="ignore_warnings_on_exit" value="1" />
+
+    <!-- PSR-4 namespace configuration. -->
+    <rule ref="SlevomatCodingStandard.Files.TypeNameMatchesFileName">
+        <properties>
+            <property name="rootNamespaces" type="array">
+                <element key="src" value="n5s\BlockVisitor" />
+                <element key="tests" value="n5s\BlockVisitor\Tests" />
+                <element key="tests/unit" value="n5s\BlockVisitor\Tests\Unit" />
+                <element key="tests/integration" value="n5s\BlockVisitor\Tests\Integration" />
+                <element key="examples" value="n5s\BlockVisitor\Examples" />
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="Syde-Extra">
+        <exclude name="Syde.Functions.FunctionLength.TooLong" />
+        <exclude name="Syde.Files.LineLength.TooLong" />
+        <exclude name="Syde.Classes.DisallowGetterSetter.GetterFound" />
+        <exclude name="Syde.NamingConventions.ElementNameMinimalLength.TooShort" />
+        <exclude name="SlevomatCodingStandard.Classes.ForbiddenPublicProperty.ForbiddenPublicProperty" />
+    </rule>
+
+    <rule ref="SlevomatCodingStandard.Namespaces.AlphabeticallySortedUses"/>
+    <rule ref="SlevomatCodingStandard.Namespaces.UseDoesNotStartWithBackslash"/>
+    <rule ref="SlevomatCodingStandard.Namespaces.FullyQualifiedGlobalConstants"/>
+    <rule ref="SlevomatCodingStandard.Namespaces.FullyQualifiedGlobalFunctions">
+        <properties>
+            <property name="includeSpecialFunctions" value="true"/>
+        </properties>
+    </rule>
+
+    <!--
+        These variables mirror the WordPress HTML API they wrap
+        (get_token_type(), get_modifiable_text(), create_fragment(), …).
+        Renaming them to camelCase would only hide what they map onto, so the
+        sniff is turned off here rather than everywhere.
+    -->
+    <rule ref="Syde.NamingConventions.VariableName.SnakeCaseVar">
+        <exclude-pattern>tests/Support/*</exclude-pattern>
+    </rule>
+
+</ruleset>

@@ -5,7 +5,9 @@ declare(strict_types=1);
 use n5s\BlockVisitor\BlockTraverser;
 use n5s\BlockVisitor\Examples\DepthVisitor;
 use n5s\BlockVisitor\Examples\GalleryVisitor;
+use n5s\BlockVisitor\Examples\ParagraphRemoverVisitor;
 use n5s\BlockVisitor\Examples\TreeVisitor;
+use n5s\BlockVisitor\Examples\WrapInGroupVisitor;
 
 require __DIR__ . '/deps.php';
 
@@ -67,13 +69,49 @@ WP_CLI::add_command('visitor', new class () {
         echo $visitor;
     }
 
-    private function getDemoContent(): string
+    /**
+     * Wraps top-level paragraphs in a group block.
+     *
+     * ## EXAMPLES
+     *
+     *     wp visitor wrap
+     *
+     * @when before_wp_load
+     */
+    public function wrap(): void
     {
-        $root = realpath(__DIR__ . '/../tests/fixtures/demo.html');
-        if ($root === false) {
+        $content = "<!-- wp:paragraph -->\n<p>Hello</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:separator /-->\n\n<!-- wp:paragraph -->\n<p>World</p>\n<!-- /wp:paragraph -->";
+        $traverser = new BlockTraverser(new WrapInGroupVisitor());
+
+        echo $traverser->traverse($content);
+    }
+
+    /**
+     * Removes every paragraph, then prints the tree.
+     *
+     * ## EXAMPLES
+     *
+     *     wp visitor remove
+     *
+     * @when before_wp_load
+     */
+    public function remove(): void
+    {
+        $tree = new TreeVisitor();
+        $traverser = new BlockTraverser($tree, new ParagraphRemoverVisitor());
+
+        $traverser->traverse($this->getDemoContent('demo-simple.html'));
+
+        echo $tree;
+    }
+
+    private function getDemoContent(string $file = 'demo.html'): string
+    {
+        $path = realpath(__DIR__ . '/../tests/fixtures/' . $file);
+        if ($path === false) {
             throw new RuntimeException('Could not resolve demo content');
         }
 
-        return file_get_contents($root);
+        return (string) file_get_contents($path);
     }
 });

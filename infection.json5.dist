@@ -1,0 +1,30 @@
+{
+    $schema: "vendor/infection/infection/resources/schema.json",
+    source: {
+        directories: ["src"],
+    },
+    tmpDir: "tmp/infection",
+    // The Mantle/WordPress bootstrap costs ~1s per process; leave headroom for
+    // mutants that push a traversal into a slow path.
+    timeout: 30,
+    testFramework: "phpunit",
+    // Run this on PHP 8.4. Infection aborts the initial test run on the first
+    // byte written to STDERR (InitialTestsRunner::run), and under PHP 8.5 the
+    // sqlite-database-integration plugin logs PDO::sqliteCreateFunction()
+    // deprecations there. WordPress forces error_reporting(E_ALL) in
+    // wp_debug_mode(), so no ini override from here can suppress them.
+    testFrameworkOptions: "--no-progress",
+    logs: {
+        text: "tmp/infection/infection.log",
+        summary: "tmp/infection/summary.log",
+        html: "tmp/infection/infection.html",
+    },
+    mutators: {
+        "@default": true,
+    },
+    // Baseline measured on 2026-09-09 with --with-uncovered: 357 mutants,
+    // 334 killed, 18 escaped, 5 uncovered (MSI 93%, covered MSI 94%).
+    // Ratchet both up as escaped mutants get killed.
+    minMsi: 90,
+    minCoveredMsi: 92,
+}

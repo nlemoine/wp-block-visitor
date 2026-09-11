@@ -5,19 +5,18 @@ declare(strict_types=1);
 namespace n5s\BlockVisitor\Examples;
 
 use n5s\BlockVisitor\BlockNode;
-use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
+use n5s\BlockVisitor\Visitor\AbstractBlockVisitor;
 use n5s\BlockVisitor\Visitor\PrioritizedVisitorInterface;
+use n5s\BlockVisitor\Visitor\Traversal;
 
-class ParagraphRemoverVisitor implements BlockVisitorInterface, PrioritizedVisitorInterface
+/**
+ * Removes every `core/paragraph` block, before any other visitor runs.
+ */
+class ParagraphRemoverVisitor extends AbstractBlockVisitor implements PrioritizedVisitorInterface
 {
-    public function enter(BlockNode $block): BlockNode|array|null
+    public function leave(BlockNode $block): BlockNode|array|Traversal|null
     {
-        return $block;
-    }
-
-    public function leave(BlockNode $block): BlockNode|array|null
-    {
-        return $block;
+        return $block->getBlockName() === 'core/paragraph' ? Traversal::Remove : null;
     }
 
     public function getPriority(): int
