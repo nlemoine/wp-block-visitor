@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use n5s\BlockVisitor\BlockTraverser;
+use n5s\BlockVisitor\Examples\AttachmentIdVisitor;
 use n5s\BlockVisitor\Examples\DepthVisitor;
 use n5s\BlockVisitor\Examples\GalleryVisitor;
 use n5s\BlockVisitor\Examples\ParagraphRemoverVisitor;
@@ -103,6 +104,26 @@ WP_CLI::add_command('visitor', new class () {
         $traverser->traverse($this->getDemoContent('demo-simple.html'));
 
         echo $tree;
+    }
+
+    /**
+     * Collects the attachment IDs of a post so they can be loaded in one query.
+     *
+     * ## EXAMPLES
+     *
+     *     wp visitor ids
+     *
+     * @when before_wp_load
+     */
+    public function ids(): void
+    {
+        $visitor = new AttachmentIdVisitor();
+        $traverser = new BlockTraverser($visitor);
+
+        $traverser->traverse($this->getDemoContent());
+
+        WP_CLI::line(sprintf('%d attachment IDs: %s', count($visitor->getIds()), implode(', ', $visitor->getIds())));
+        WP_CLI::line('Call $visitor->prime() before rendering to load them all with one query.');
     }
 
     private function getDemoContent(string $file = 'demo.html'): string

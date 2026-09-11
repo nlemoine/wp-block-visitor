@@ -177,6 +177,22 @@ $block->toArray();  // parse_blocks() shape
 
 ## Examples
 
+### Prime the attachment cache in one query
+
+WordPress resolves each media block on render with its own `get_post()` call, one query per image, cover or video. Collecting the IDs first turns them into a single query:
+
+```php
+use n5s\BlockVisitor\Examples\AttachmentIdVisitor;
+
+$visitor = new AttachmentIdVisitor();
+(new BlockTraverser($visitor))->traverse($post->post_content);
+$visitor->prime(); // _prime_post_caches() on every collected ID
+```
+
+The visitor knows the core media blocks and accepts a map of extra block names to ID attributes for custom blocks.
+
+### Runnable demos
+
 `examples/` contains runnable visitors, exposed as WP-CLI commands:
 
 ```sh
@@ -185,6 +201,7 @@ wp visitor depth --require=examples/cli.php    # print every block with its dept
 wp visitor gallery --require=examples/cli.php  # expand a gallery into image blocks
 wp visitor wrap --require=examples/cli.php     # wrap top-level paragraphs in groups
 wp visitor remove --require=examples/cli.php   # remove every paragraph, print the tree
+wp visitor ids --require=examples/cli.php      # collect the attachment IDs of a fixture
 ```
 
 Run the tests before (`composer install && composer test`) so a WordPress instance can be found.
