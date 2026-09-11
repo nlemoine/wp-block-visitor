@@ -16,6 +16,7 @@
         "ergebnis/composer-normalize": "^2.48",
         "infection/infection": "^0.35",
         "mantle-framework/testkit": "^1.20",
+        "phpbench/phpbench": "^1.7",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "rector/rector": "^2.2",
@@ -33,7 +34,8 @@
     "autoload-dev": {
         "psr-4": {
             "n5s\\BlockVisitor\\Tests\\": "tests/",
-            "n5s\\BlockVisitor\\Examples\\": "examples/"
+            "n5s\\BlockVisitor\\Examples\\": "examples/",
+            "n5s\\BlockVisitor\\Benchmarks\\": "benchmarks/"
         }
     },
     "config": {
@@ -49,6 +51,7 @@
         "process-timeout": 1800
     },
     "scripts": {
+        "bench": "phpbench run --report=aggregate",
         "coverage": "@php -d pcov.enabled=1 -d pcov.directory=src vendor/bin/phpunit --coverage-text --coverage-html tmp/coverage/html",
         "cs": "phpcs",
         "cs:fix": "phpcbf",
@@ -66,6 +69,7 @@
         "test": "phpunit"
     },
     "scripts-descriptions": {
+        "bench": "Compare BlockTraverser, WP_Block_Processor and parse_blocks() with phpbench.",
         "coverage": "Report line coverage (text summary plus an HTML report in tmp/coverage/html).",
         "cs": "Check coding standards with PHP_CodeSniffer.",
         "cs:fix": "Auto-fix coding standard violations.",

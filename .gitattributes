@@ -10,3 +10,5 @@
 /README.md            export-ignore
 /tests                export-ignore
 /examples             export-ignore
+/phpbench.json.dist  export-ignore
+/benchmarks          export-ignore
