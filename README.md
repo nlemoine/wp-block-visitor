@@ -187,6 +187,8 @@ wp visitor wrap --require=examples/cli.php     # wrap top-level paragraphs in gr
 wp visitor remove --require=examples/cli.php   # remove every paragraph, print the tree
 ```
 
+Run the tests before (`composer install && composer test`) so a WordPress instance can be found.
+
 ## Development
 
 ```sh

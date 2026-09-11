@@ -7,7 +7,7 @@ if ($root === false) {
     throw new RuntimeException('Could not resolve root directory');
 }
 
-define('ABSPATH', $root . '/wordpress/');
+define('ABSPATH', $root . '/tmp/wordpress/');
 define('WPINC', 'wp-includes');
 
 require $root . '/vendor/autoload.php';
