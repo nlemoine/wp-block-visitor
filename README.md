@@ -148,7 +148,7 @@ $block->removeClassName('is-style-fill');
 
 ### Children
 
-Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated.
+Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated. Inserting into a container the parser left empty splits its markup so the block lands inside the wrapper rather than after it.
 
 ```php
 $block->appendInnerBlock($child);

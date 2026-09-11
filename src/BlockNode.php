@@ -797,14 +797,52 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Where placeholders go in a node without children: between the wrapper's opening and closing chunks
-     * when there are at least two, at the end otherwise.
+     * Where placeholders go in a node without children.
+     *
+     * A container the parser left empty keeps its opening and closing markup in a single chunk,
+     * so the chunk is split before its last closing tag; otherwise the children would serialize
+     * after the wrapper instead of inside it.
      */
     private function emptyContainerPosition(): int
     {
         $count = \count($this->innerContent);
 
+        if ($count === 1) {
+            $chunk = (string) $this->innerContent[0];
+            $position = $this->lastClosingTagPosition($chunk);
+            if ($position !== null && $position > 0) {
+                \array_splice($this->innerContent, 0, 1, [
+                    \substr($chunk, 0, $position),
+                    \substr($chunk, $position),
+                ]);
+
+                return 1;
+            }
+        }
+
         return $count >= 2 ? $count - 1 : $count;
+    }
+
+    /**
+     * Offset of the last closing tag of a chunk, or null when it has none.
+     */
+    private function lastClosingTagPosition(string $html): ?int
+    {
+        $processor = new WP_HTML_Tag_Processor($html);
+        $tagName = null;
+        while ($processor->next_tag(['tag_closers' => 'visit'])) {
+            if ($processor->is_tag_closer()) {
+                $tagName = \strtolower((string) $processor->get_tag());
+            }
+        }
+
+        if ($tagName === null) {
+            return null;
+        }
+
+        $position = \strripos($html, '</' . $tagName);
+
+        return $position === false ? null : $position;
     }
 
     /**

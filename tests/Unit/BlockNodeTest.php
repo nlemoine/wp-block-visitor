@@ -1182,6 +1182,45 @@ final class BlockNodeTest extends TestCase
         $this->assertSame('</div>', \end($content));
     }
 
+    public function testInsertingIntoAContainerTheParserLeftEmptyStaysInsideTheWrapper(): void
+    {
+        $group = BlockNode::createFromString("<!-- wp:group -->\n<div class=\"wp-block-group\"></div>\n<!-- /wp:group -->");
+
+        $this->assertSame(["\n<div class=\"wp-block-group\"></div>\n"], $group->getInnerContent(), 'the parser keeps both tags in one chunk');
+
+        $group->appendInnerBlock(BlockNode::createFromString('<!-- wp:paragraph --><p>in</p><!-- /wp:paragraph -->'));
+
+        $this->assertSame(["\n<div class=\"wp-block-group\">", null, "</div>\n"], $group->getInnerContent());
+        $this->assertStringContainsString('<div class="wp-block-group"><!-- wp:paragraph --><p>in</p><!-- /wp:paragraph --></div>', (string) $group);
+    }
+
+    public function testInsertingIntoAContainerWithoutAnyClosingTagAppendsAtTheEnd(): void
+    {
+        $node = new BlockNode('core/group', [], [], '', ['<div>']);
+
+        $node->appendInnerBlock(new BlockNode('core/paragraph'));
+
+        $this->assertSame(['<div>', null], $node->getInnerContent());
+    }
+
+    public function testInsertingIntoAContainerWithNoContentAtAll(): void
+    {
+        $node = new BlockNode('core/group');
+
+        $node->appendInnerBlock(new BlockNode('core/paragraph'));
+
+        $this->assertSame([null], $node->getInnerContent());
+    }
+
+    public function testAChunkThatIsOnlyAClosingTagIsNotSplit(): void
+    {
+        $node = new BlockNode('core/group', [], [], '', ['</div>']);
+
+        $node->appendInnerBlock(new BlockNode('core/paragraph'));
+
+        $this->assertSame(['</div>', null], $node->getInnerContent());
+    }
+
     // ------------------------------------------------------------------
     //  Fixtures
     // ------------------------------------------------------------------
