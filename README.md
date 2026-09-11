@@ -206,21 +206,20 @@ wp visitor ids --require=examples/cli.php      # collect the attachment IDs of a
 
 Run the tests before (`composer install && composer test`) so a WordPress instance can be found.
 
-## Benchmarks
+## Cost
 
-`composer bench` compares three ways of doing the same job on `tests/fixtures/demo.html` (about 100 blocks) and on the same document repeated 20 times: this library, WordPress 6.9's streaming `WP_Block_Processor`, and `parse_blocks()` with a hand-written recursion. Measured on PHP 8.5, Apple Silicon, one run per iteration:
+Compared with `parse_blocks()` and WordPress 6.9's streaming `WP_Block_Processor` on a 2000-block document, PHP 8.5, Apple Silicon (`composer bench`):
 
-| Scenario, 2000 blocks | BlockTraverser | WP_Block_Processor | parse_blocks() |
+| 2000 blocks | BlockTraverser | WP_Block_Processor | parse_blocks() |
 |---|---|---|---|
-| Collect attachment IDs | 21.5 ms, 15.4 MB | 19.0 ms, 8.1 MB | 14.7 ms, 14.3 MB |
-| Count block types | 21.0 ms, 15.4 MB | 18.3 ms, 8.1 MB | 14.3 ms, 14.3 MB |
-| Add a class to every image and serialize | 24.1 ms, 15.4 MB | 20.7 ms, 8.9 MB | 18.6 ms, 16.3 MB |
+| Read: collect attachment IDs | 21 ms, 15 MB | 19 ms, 8 MB | 15 ms, 14 MB |
+| Write: add a class to every image | 24 ms, 15 MB | 21 ms, 9 MB | 19 ms, 16 MB |
 
-The memory column is the process peak, about 6.8 MB of which is the PHP process itself. So a tree of `BlockNode` costs about as much as the `parse_blocks()` array, while the processor never materializes the tree. On time the library pays 10 to 45 percent over the alternatives for the object model, the visitor dispatch and the placeholder bookkeeping. Of the 21 ms of the first row, 12.6 ms are `parse_blocks()` itself, 2.8 ms build the tree, 2.4 ms run the visitor over 2000 nodes and the rest serializes. The per-node cost is constant: a parent with 5000 children traverses in under 4 ms.
+Memory is the process peak, 7 MB of which is PHP itself. Of the 21 ms, 12.6 ms are `parse_blocks()`.
 
-What the numbers do not show is that the three are not interchangeable. `WP_Block_Processor` reads; a modification is a span you splice into the source string yourself, with the delimiter re-serialized by hand, which is what the benchmark does. `parse_blocks()` gives you the tree but nothing keeps `innerContent` in sync when you insert or remove children. This library is the one you reach for when a visitor has to restructure content safely.
+**What you pay**: a block tree in memory, about the size of the `parse_blocks()` array, and 10 to 45 percent more time than the raw alternatives for building the nodes and dispatching the visitor.
 
-One consequence of the parent pointers: a tree is a reference cycle, freed by PHP's cycle collector rather than by refcount. Bulk runs over many posts are fine, the collector triggers on its own, but environments that disable it, phpbench among them, keep every tree alive until the process ends. That is why the benchmarks run once per iteration.
+**What you get**: children can be inserted, removed, replaced or wrapped and `innerContent` stays consistent; untouched blocks serialize byte for byte; visitors compose in passes. `WP_Block_Processor` reads without building anything and is the right tool for scanning, but a modification is a span you splice into the source yourself. `parse_blocks()` gives you the tree and leaves the bookkeeping to you.
 
 ## Development
 
