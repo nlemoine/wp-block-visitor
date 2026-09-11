@@ -75,7 +75,9 @@ final class BlockTraverser
                 throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
             }
 
-            $this->assertAttached($parent, $index, $child);
+            if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
+                throw $this->detached($parent, $index, $child);
+            }
             if ($result instanceof BlockNode && $result !== $child) {
                 $parent->replaceInnerBlockAt($index, $result);
                 $child = $result;
@@ -100,7 +102,9 @@ final class BlockTraverser
                 throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
             }
 
-            $this->assertAttached($parent, $index, $child);
+            if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
+                throw $this->detached($parent, $index, $child);
+            }
 
             if ($result === Traversal::Remove) {
                 $replacements[] = [$index, []];
@@ -117,19 +121,14 @@ final class BlockTraverser
         }
     }
 
-    /**
-     * Checks that the node visited at the given index is still there, in O(1).
-     */
-    private function assertAttached(BlockNode $parent, int $index, BlockNode $child): void
+    private function detached(BlockNode $parent, int $index, BlockNode $child): LogicException
     {
-        if (($parent->getInnerBlocks()[$index] ?? null) !== $child) {
-            throw new LogicException(\sprintf(
-                'Block "%s" is no longer child %d of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
-                $child->getBlockName() ?? '(freeform)',
-                $index,
-                $parent->getBlockName() ?? '(freeform)',
-            ));
-        }
+        return new LogicException(\sprintf(
+            'Block "%s" is no longer child %d of "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
+            $child->getBlockName() ?? '(freeform)',
+            $index,
+            $parent->getBlockName() ?? '(freeform)',
+        ));
     }
 
     /**
