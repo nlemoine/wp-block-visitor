@@ -1546,6 +1546,46 @@ final class BlockNodeTest extends TestCase
         $this->assertSame("<!-- wp:a /-->\n\n<!-- wp:b /-->\n\n<!-- wp:c /-->", (string) $root);
     }
 
+    public function testSerializationMatchesWordPressOnEveryBlockOfTheFixture(): void
+    {
+        $check = function (array $parsedBlock) use (&$check): void {
+            $this->assertSame(\serialize_block($parsedBlock), (string) BlockNode::create($parsedBlock));
+            \array_map($check, $parsedBlock['innerBlocks']);
+        };
+
+        \array_map($check, \parse_blocks(self::fixture('demo.html')));
+    }
+
+    /**
+     * @param array<string, mixed> $parsedBlock
+     */
+    #[DataProvider('serializationEdgeCaseProvider')]
+    public function testSerializationMatchesWordPressOnEdgeCases(array $parsedBlock): void
+    {
+        $this->assertSame(\serialize_block($parsedBlock), (string) BlockNode::create($parsedBlock));
+    }
+
+    /**
+     * @return \Iterator<string, array{array<string, mixed>}>
+     */
+    public static function serializationEdgeCaseProvider(): \Iterator
+    {
+        $block = static fn (?string $name, array $attrs, array $innerContent): array => [
+            'blockName' => $name,
+            'attrs' => $attrs,
+            'innerBlocks' => [],
+            'innerHTML' => \implode('', $innerContent),
+            'innerContent' => $innerContent,
+        ];
+
+        yield 'void block' => [$block('core/separator', [], [])];
+        yield 'void block with attributes' => [$block('core/spacer', ['height' => '10px'], [])];
+        yield 'content "0" is void' => [$block('core/paragraph', ['a' => 1], ['0'])];
+        yield 'third-party namespace' => [$block('my_plugin/my_block', [], ['<p>x</p>'])];
+        yield 'characters WordPress escapes' => [$block('core/html', ['content' => '<b>--&"\\'], ['<b>x</b>'])];
+        yield 'freeform' => [$block(null, [], ["\n\n"])];
+    }
+
     // ------------------------------------------------------------------
     //  Fixtures
     // ------------------------------------------------------------------

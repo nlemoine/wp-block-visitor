@@ -730,18 +730,32 @@ final class BlockNode implements Stringable
             $content .= $chunk ?? (string) $this->innerBlocks[$index++];
         }
 
-        if ($this->isRoot()) {
+        if ($this->blockName === null || $this->isRoot()) {
             return $content;
         }
 
-        if ($this->attrs !== [] && \serialize_block_attributes($this->attrs) === '') {
-            throw new RuntimeException(\sprintf(
-                'Cannot serialize the attributes of block "%s": they hold a value JSON cannot encode.',
-                $this->blockName ?? '(freeform)',
-            ));
+        // Writes what get_comment_delimited_block_content() does, which would encode the
+        // attributes a second time after the check below.
+        $attributes = '';
+        if ($this->attrs !== []) {
+            $attributes = \serialize_block_attributes($this->attrs);
+            if ($attributes === '') {
+                throw new RuntimeException(\sprintf(
+                    'Cannot serialize the attributes of block "%s": they hold a value JSON cannot encode.',
+                    $this->blockName,
+                ));
+            }
+            $attributes .= ' ';
         }
 
-        return (string) \get_comment_delimited_block_content($this->blockName, $this->attrs, $content);
+        $name = \strip_core_block_namespace($this->blockName);
+
+        // WordPress tests the content with empty(), so "0" also makes a void block.
+        if ($content === '' || $content === '0') {
+            return \sprintf('<!-- wp:%s %s/-->', $name, $attributes);
+        }
+
+        return \sprintf('<!-- wp:%s %s-->%s<!-- /wp:%s -->', $name, $attributes, $content, $name);
     }
 
     // -------------------------------------------------------------------------
