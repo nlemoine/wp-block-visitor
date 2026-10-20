@@ -6,6 +6,7 @@ namespace n5s\BlockVisitor;
 
 use InvalidArgumentException;
 use LogicException;
+use n5s\BlockVisitor\Internal\Placeholders;
 use OutOfRangeException;
 use RuntimeException;
 use Stringable;
@@ -43,11 +44,6 @@ use WP_HTML_Tag_Processor;
 final class BlockNode implements Stringable
 {
     public const string ROOT_BLOCK_NAME = '@root';
-
-    /**
-     * Separator Gutenberg emits between two sibling blocks, used when a list has none to copy.
-     */
-    private const string BLOCK_SEPARATOR = "\n\n";
 
     /**
      * Block names that can be written into a delimiter without breaking out of it, the same
@@ -112,7 +108,7 @@ final class BlockNode implements Stringable
             $this->adopt($node);
         }
 
-        $this->reconcilePlaceholders();
+        $this->innerContent = Placeholders::reconcile($this->innerContent, \count($this->innerBlocks), $this->isRoot());
     }
 
     /**
@@ -356,7 +352,8 @@ final class BlockNode implements Stringable
         }
 
         $adopted = $this->assertReplacements($replacements);
-        $this->innerContent = $this->replacedContent($replacements);
+        $counts = \array_map(\count(...), $replacements);
+        $this->innerContent = Placeholders::replaceMany($this->innerContent, $counts, \count($this->innerBlocks), $this->isRoot());
 
         $old = $this->innerBlocks;
         $this->innerBlocks = [];
@@ -404,20 +401,11 @@ final class BlockNode implements Stringable
 
         $index = $this->removeOwnChildren($nodes, $index);
         $count = \count($this->innerBlocks);
-        $separator = $this->siblingSeparator();
-
         if ($count === 0) {
-            $position = $this->emptyContainerPosition(true);
-            $run = $this->placeholderRun(\count($nodes), $separator, false, false);
-        } elseif ($index === $count) {
-            $position = $this->placeholderPosition($count - 1) + 1;
-            $run = $this->placeholderRun(\count($nodes), $separator, true, false);
-        } else {
-            $position = $this->placeholderPosition($index);
-            $run = $this->placeholderRun(\count($nodes), $separator, false, true);
+            $this->splitEmptyContainer();
         }
 
-        \array_splice($this->innerContent, $position, 0, $run);
+        Placeholders::insert($this->innerContent, $index, \count($nodes), $count, $this->isRoot());
         \array_splice($this->innerBlocks, $index, 0, $nodes);
 
         foreach ($nodes as $node) {
@@ -479,17 +467,10 @@ final class BlockNode implements Stringable
         $old = $this->innerBlocks;
 
         if (\count($new) !== \count($old)) {
-            $positions = \array_keys($this->innerContent, null, true);
-            if ($positions === []) {
-                $start = $this->emptyContainerPosition(true);
-                $length = 0;
-            } else {
-                $start = $positions[0];
-                $length = \end($positions) - $start + 1;
+            if ($old === []) {
+                $this->splitEmptyContainer();
             }
-
-            $run = $this->placeholderRun(\count($new), $this->siblingSeparator(), false, false);
-            \array_splice($this->innerContent, $start, $length, $run);
+            Placeholders::respan($this->innerContent, \count($new), $this->isRoot());
         }
 
         $this->innerBlocks = $new;
@@ -541,7 +522,7 @@ final class BlockNode implements Stringable
     public function setInnerContent(string|array $content): self
     {
         $this->innerContent = \is_string($content) ? [$content] : \array_values($content);
-        $this->reconcilePlaceholders();
+        $this->innerContent = Placeholders::reconcile($this->innerContent, \count($this->innerBlocks), $this->isRoot());
 
         return $this;
     }
@@ -591,7 +572,8 @@ final class BlockNode implements Stringable
      */
     public function clearContent(): self
     {
-        $this->innerContent = $this->placeholderRun(\count($this->innerBlocks), $this->siblingSeparator(), false, false);
+        $separator = Placeholders::separator($this->innerContent, $this->isRoot());
+        $this->innerContent = Placeholders::run(\count($this->innerBlocks), $separator, false, false);
 
         return $this;
     }
@@ -940,17 +922,8 @@ final class BlockNode implements Stringable
             return;
         }
 
-        $position = $this->placeholderPosition($index);
-        $separator = $this->siblingSeparator();
+        Placeholders::replace($this->innerContent, $index, \count($this->innerBlocks), \count($replacements), $this->isRoot());
         \array_splice($this->innerBlocks, $index, 1, $replacements);
-
-        if ($replacements === []) {
-            $this->removePlaceholderAt($position);
-
-            return;
-        }
-
-        \array_splice($this->innerContent, $position, 1, $this->placeholderRun(\count($replacements), $separator, false, false));
     }
 
     /**
@@ -985,64 +958,6 @@ final class BlockNode implements Stringable
         $this->assertDistinct($adopted);
 
         return $adopted;
-    }
-
-    /**
-     * The content once the given replacements are applied.
-     *
-     * Walked from the end so that, as when replacing one by one from the highest index,
-     * everything on the right is already final when a placeholder is removed, and everything
-     * on the left is untouched.
-     *
-     * @param array<int, list<BlockNode>> $replacements
-     * @return list<string|null>
-     */
-    private function replacedContent(array $replacements): array
-    {
-        $reversed = [];
-        $child = \count($this->innerBlocks);
-        // As one by one, an expansion copies the separator between the first two children. Only
-        // child 0 can see that pair changed, by the replacements applied after it.
-        $separator = $this->siblingSeparator();
-        for ($position = \count($this->innerContent) - 1; $position >= 0; $position--) {
-            $chunk = $this->innerContent[$position];
-            if ($chunk !== null || !\array_key_exists(--$child, $replacements)) {
-                $reversed[] = $chunk;
-                continue;
-            }
-
-            if ($replacements[$child] !== []) {
-                \array_push($reversed, ...$this->reversedExpansion($child, \count($replacements[$child]), $reversed, $separator));
-                continue;
-            }
-
-            // Removal: drop the separator that joined the placeholder to a sibling, as removePlaceholderAt() does.
-            $top = \count($reversed) - 1;
-            if ($top >= 1 && $this->isSeparator($reversed[$top]) && $reversed[$top - 1] === null) {
-                \array_pop($reversed);
-                continue;
-            }
-            if ($position >= 2 && $this->isSeparator($this->innerContent[$position - 1]) && $this->innerContent[$position - 2] === null) {
-                $position--;
-            }
-        }
-
-        return \array_reverse($reversed);
-    }
-
-    /**
-     * The placeholders of an expansion in `replacedContent()`, reversed like its output.
-     *
-     * @param list<string|null> $reversed
-     * @return list<string|null>
-     */
-    private function reversedExpansion(int $child, int $count, array $reversed, string $separator): array
-    {
-        if ($child === 0) {
-            $separator = $this->separatorAfterFirst($reversed);
-        }
-
-        return \array_reverse($this->placeholderRun($count, $separator, false, false));
     }
 
     /**
@@ -1088,61 +1003,24 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Position in `innerContent` of the placeholder of the child at the given index.
+     * Prepares a node without children for its first ones.
      *
-     * @param int|null $total Number of placeholders, when it is not yet the number of children.
+     * A container the parser left empty keeps its opening and closing markup in a single chunk,
+     * so the chunk is cut before its last closing tag and the children land between the two
+     * halves; otherwise they would serialize after the wrapper instead of inside it. Only called
+     * when inserting: content set by hand is taken as given.
      */
-    private function placeholderPosition(int $index, ?int $total = null): int
+    private function splitEmptyContainer(): void
     {
-        $count = $total ?? \count($this->innerBlocks);
-
-        // Scanning from the nearer end keeps appending and removing in reverse order linear
-        // on nodes with many children, where scanning from the start is quadratic.
-        if ($index * 2 < $count) {
-            $seen = -1;
-            foreach ($this->innerContent as $position => $chunk) {
-                if ($chunk === null && ++$seen === $index) {
-                    return $position;
-                }
-            }
-        } else {
-            $seen = $count;
-            for ($position = \count($this->innerContent) - 1; $position >= 0; $position--) {
-                if ($this->innerContent[$position] === null && --$seen === $index) {
-                    return $position;
-                }
-            }
+        if (\count($this->innerContent) !== 1) {
+            return;
         }
 
-        throw new LogicException(\sprintf('innerContent and innerBlocks are out of sync: no placeholder for child %d.', $index));
-    }
-
-    /**
-     * Where placeholders go in a node without children.
-     *
-     * A container the parser left empty keeps its opening and closing markup in a single chunk.
-     * When inserting children, `$split` cuts that chunk before its last closing tag; otherwise
-     * the children would serialize after the wrapper instead of inside it. Content set by hand
-     * is taken as given and not split.
-     */
-    private function emptyContainerPosition(bool $split): int
-    {
-        $count = \count($this->innerContent);
-
-        if ($split && $count === 1) {
-            $chunk = (string) $this->innerContent[0];
-            $position = $this->lastClosingTagPosition($chunk);
-            if ($position !== null && $position > 0) {
-                \array_splice($this->innerContent, 0, 1, [
-                    \substr($chunk, 0, $position),
-                    \substr($chunk, $position),
-                ]);
-
-                return 1;
-            }
+        $chunk = (string) $this->innerContent[0];
+        $position = $this->lastClosingTagPosition($chunk);
+        if ($position !== null && $position > 0) {
+            $this->innerContent = [\substr($chunk, 0, $position), \substr($chunk, $position)];
         }
-
-        return $count >= 2 ? $count - 1 : $count;
     }
 
     /**
@@ -1167,166 +1045,5 @@ final class BlockNode implements Stringable
         }
 
         return $position;
-    }
-
-    private function isSeparator(?string $chunk): bool
-    {
-        return \is_string($chunk) && \trim($chunk) === '';
-    }
-
-    /**
-     * Builds `[SEP?] null (SEP null)* [SEP?]`, without any chunk when the separator is empty.
-     *
-     * @return list<string|null>
-     */
-    private function placeholderRun(int $count, string $separator, bool $leadingSeparator, bool $trailingSeparator): array
-    {
-        if ($count <= 0) {
-            return [];
-        }
-
-        $glue = $separator === '' ? [] : [$separator];
-        $run = $leadingSeparator ? $glue : [];
-        for ($i = 0; $i < $count; $i++) {
-            if ($i > 0) {
-                \array_push($run, ...$glue);
-            }
-            $run[] = null;
-        }
-        if ($trailingSeparator) {
-            \array_push($run, ...$glue);
-        }
-
-        return $run;
-    }
-
-    /**
-     * The separator a new sibling gets: the one already used between the first two children.
-     *
-     * Adjacent placeholders mean the list uses none, and a single whitespace chunk is copied as
-     * is. Markup between them, or fewer than two children, falls back to the blank line
-     * Gutenberg emits. A root always uses the blank line, since the parser keeps the whitespace
-     * between top-level blocks as freeform blocks rather than chunks.
-     */
-    private function siblingSeparator(): string
-    {
-        if ($this->isRoot()) {
-            return self::BLOCK_SEPARATOR;
-        }
-
-        $between = null;
-        foreach ($this->innerContent as $chunk) {
-            if ($chunk !== null) {
-                if ($between !== null) {
-                    $between[] = $chunk;
-                }
-                continue;
-            }
-
-            if ($between !== null) {
-                return $this->separatorFrom($between);
-            }
-            $between = [];
-        }
-
-        return self::BLOCK_SEPARATOR;
-    }
-
-    /**
-     * `siblingSeparator()` for child 0 in the middle of `replacedContent()`, read from the
-     * content already rebuilt on its right, which is stored reversed.
-     *
-     * @param list<string|null> $reversed
-     */
-    private function separatorAfterFirst(array $reversed): string
-    {
-        if ($this->isRoot()) {
-            return self::BLOCK_SEPARATOR;
-        }
-
-        $between = [];
-        for ($i = \count($reversed) - 1; $i >= 0; $i--) {
-            $chunk = $reversed[$i];
-            if ($chunk === null) {
-                return $this->separatorFrom($between);
-            }
-            $between[] = $chunk;
-        }
-
-        return self::BLOCK_SEPARATOR;
-    }
-
-    /**
-     * @param list<string> $between The chunks between two consecutive placeholders.
-     */
-    private function separatorFrom(array $between): string
-    {
-        if ($between === []) {
-            return '';
-        }
-
-        return \count($between) === 1 && $this->isSeparator($between[0]) ? $between[0] : self::BLOCK_SEPARATOR;
-    }
-
-    /**
-     * Drops the placeholder at the given position, plus the whitespace separator that joined it to a sibling.
-     */
-    private function removePlaceholderAt(int $position): void
-    {
-        \array_splice($this->innerContent, $position, 1);
-
-        $right = $this->innerContent[$position] ?? null;
-        $left = $position > 0 ? $this->innerContent[$position - 1] : null;
-
-        if (
-            $this->isSeparator($right)
-            && \array_key_exists($position + 1, $this->innerContent)
-            && $this->innerContent[$position + 1] === null
-        ) {
-            \array_splice($this->innerContent, $position, 1);
-
-            return;
-        }
-
-        if (
-            $position >= 2
-            && $this->isSeparator($left)
-            && $this->innerContent[$position - 2] === null
-        ) {
-            \array_splice($this->innerContent, $position - 1, 1);
-        }
-    }
-
-    /**
-     * Makes the placeholder count match the child count for hand-built nodes.
-     * Parsed nodes are already consistent and left untouched.
-     */
-    private function reconcilePlaceholders(): void
-    {
-        $placeholders = \count(\array_keys($this->innerContent, null, true));
-        $blocks = \count($this->innerBlocks);
-
-        if ($placeholders === $blocks) {
-            return;
-        }
-
-        if ($placeholders > $blocks) {
-            for ($i = $placeholders; $i > $blocks; $i--) {
-                $this->removePlaceholderAt($this->placeholderPosition($i - 1, $i));
-            }
-
-            return;
-        }
-
-        $missing = $blocks - $placeholders;
-        $separator = $this->siblingSeparator();
-        if ($placeholders === 0) {
-            \array_splice($this->innerContent, $this->emptyContainerPosition(false), 0, $this->placeholderRun($missing, $separator, false, false));
-
-            return;
-        }
-
-        $position = $this->placeholderPosition($placeholders - 1, $placeholders) + 1;
-        \array_splice($this->innerContent, $position, 0, $this->placeholderRun($missing, $separator, true, false));
     }
 }

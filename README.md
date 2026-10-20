@@ -115,7 +115,7 @@ BlockNode::wrap($child, 'core/group', $attrs, $before, $after); // from leave(),
 new BlockNode('core/group', $attrs, $children, $innerContent);  // children that have a parent are moved here
 ```
 
-Members tagged `@internal` (`lockChildren()`, `unlockChildren()`, `applyReplacements()`) are public only so the traverser can reach them. They are not part of the supported API and can change in any release.
+Members tagged `@internal` (`lockChildren()`, `unlockChildren()`, `applyReplacements()`) are public only so the traverser can reach them, and the `n5s\BlockVisitor\Internal` namespace only serves `BlockNode`. They are not part of the supported API and can change in any release.
 
 ### Reading
 
