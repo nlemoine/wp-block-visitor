@@ -63,7 +63,7 @@ final class BlockNode implements Stringable
     /**
      * @var list<BlockNode>
      */
-    private array $innerBlocks;
+    private array $innerBlocks = [];
 
     /**
      * @var list<string|null>
@@ -99,13 +99,30 @@ final class BlockNode implements Stringable
         $this->assertBlockName($blockName);
         $this->assertAttributes($attrs);
 
-        $this->innerContent = \array_values($innerContent);
-        $this->innerBlocks = $this->toNodes(\array_values($innerBlocks));
-        $this->assertDistinct($this->innerBlocks);
+        $this->innerContent = \array_is_list($innerContent) ? $innerContent : \array_values($innerContent);
 
-        // No cycle check needed: a node under construction cannot be anyone's descendant yet.
-        foreach ($this->innerBlocks as $node) {
-            $this->adopt($node);
+        // Only nodes passed as such can be listed twice or belong to another parent; the ones
+        // built here from arrays are new, which is every node of a parsed document.
+        $given = [];
+        foreach ($innerBlocks as $block) {
+            if ($block instanceof self) {
+                $this->innerBlocks[] = $block;
+                $given[] = $block;
+                continue;
+            }
+
+            $node = self::create($block);
+            $node->parent = $this;
+            $this->innerBlocks[] = $node;
+        }
+
+        if ($given !== []) {
+            $this->assertDistinct($given);
+
+            // No cycle check needed: a node under construction cannot be anyone's descendant yet.
+            foreach ($given as $node) {
+                $this->adopt($node);
+            }
         }
 
         $this->innerContent = Placeholders::reconcile($this->innerContent, \count($this->innerBlocks), $this->isRoot());
