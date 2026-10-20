@@ -24,7 +24,7 @@ final class BlockNodeTest extends TestCase
         $this->assertSame('core/paragraph', $node->getBlockName());
         $this->assertSame([], $node->getAttributes());
         $this->assertSame([], $node->getInnerBlocks());
-        $this->assertSame('', $node->getInnerHTML());
+        $this->assertSame('<p>Hello Block!</p>', $node->getInnerHTML());
         $this->assertSame(0, $node->getDepth());
         $this->assertNull($node->getParent());
         $this->assertFalse($node->isRoot());
@@ -60,11 +60,34 @@ final class BlockNodeTest extends TestCase
         $this->assertNull($node->getAttribute('non-existent'));
     }
 
-    public function testCanCreateANodeWithInnerHtml(): void
+    public function testCanCreateANodeFromInnerHtmlAlone(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], 'Hello World');
+        $node = BlockNode::create(['blockName' => 'core/paragraph', 'innerHTML' => '<p>Hello</p>']);
 
-        $this->assertSame('Hello World', $node->getInnerHTML());
+        $this->assertSame(['<p>Hello</p>'], $node->getInnerContent());
+        $this->assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', (string) $node);
+    }
+
+    public function testInnerHtmlFollowsTheContent(): void
+    {
+        $group = $this->group();
+
+        $group->removeInnerBlockAt(0);
+        $this->assertSame("\n<div class=\"wp-block-group\"></div>\n", $group->getInnerHTML());
+
+        $group->setInnerContent(['<section>', null, '</section>']);
+        $this->assertSame('<section></section>', $group->getInnerHTML());
+        $this->assertSame('<section></section>', $group->toArray()['innerHTML']);
+    }
+
+    public function testInnerHtmlMatchesTheParserOnEveryBlockOfTheFixture(): void
+    {
+        $check = function (array $parsedBlock) use (&$check): void {
+            $this->assertSame($parsedBlock['innerHTML'], BlockNode::create($parsedBlock)->getInnerHTML());
+            \array_map($check, $parsedBlock['innerBlocks']);
+        };
+
+        \array_map($check, \parse_blocks(self::fixture('demo.html')));
     }
 
     public function testCanCreateANodeWithInnerBlocks(): void
@@ -114,7 +137,6 @@ final class BlockNodeTest extends TestCase
             'core/columns',
             ['backgroundColor' => 'red'],
             [$innerBlock],
-            '',
             ['<div class="wp-block-columns has-background" style="background-color:red">', null, '</div>']
         );
 
@@ -126,12 +148,12 @@ final class BlockNodeTest extends TestCase
                     'blockName' => 'core/heading',
                     'attrs' => ['level' => 2],
                     'innerBlocks' => [],
-                    'innerHTML' => 'Sub-heading',
+                    'innerHTML' => '<h2 class="wp-block-heading">Sub-heading</h2>',
                     // The surplus placeholder of a childless block is dropped.
                     'innerContent' => ['<h2 class="wp-block-heading">Sub-heading</h2>'],
                 ],
             ],
-            'innerHTML' => '',
+            'innerHTML' => '<div class="wp-block-columns has-background" style="background-color:red"></div>',
             'innerContent' => ['<div class="wp-block-columns has-background" style="background-color:red">', null, '</div>'],
         ];
 
@@ -180,7 +202,7 @@ final class BlockNodeTest extends TestCase
 
     public function testClearContent(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], 'Some content', ['<p>', 'Some content', '</p>']);
+        $node = new BlockNode('core/paragraph', [], [], ['<p>', 'Some content', '</p>']);
         $node->clearContent();
 
         $this->assertSame('', $node->getInnerHTML());
@@ -596,7 +618,7 @@ final class BlockNodeTest extends TestCase
         $group->clearContent();
 
         $this->assertSame([null, "\n\n", null], $group->getInnerContent());
-        $this->assertSame('', $group->getInnerHTML());
+        $this->assertSame("\n\n", $group->getInnerHTML(), 'only the separator is left');
     }
 
     public function testSetInnerContentWithAStringAppendsPlaceholders(): void
@@ -623,7 +645,7 @@ final class BlockNodeTest extends TestCase
 
     public function testConstructorAddsMissingPlaceholdersBetweenWrapperChunks(): void
     {
-        $node = new BlockNode('core/group', [], [['blockName' => 'core/paragraph']], '', ['<div>', '</div>']);
+        $node = new BlockNode('core/group', [], [['blockName' => 'core/paragraph']], ['<div>', '</div>']);
 
         $this->assertSame(['<div>', null, '</div>'], $node->getInnerContent());
     }
@@ -673,7 +695,7 @@ final class BlockNodeTest extends TestCase
 
     public function testToArrayHasNoSideEffect(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], '', ['Hello']);
+        $node = new BlockNode('core/paragraph', [], [], ['Hello']);
 
         $node->toArray();
 
@@ -717,7 +739,7 @@ final class BlockNodeTest extends TestCase
 
     public function testAppendAfterChildrenSeparatedByMarkupKeepsThatMarkup(): void
     {
-        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], '', ['<div>', null, '<hr>', null, '</div>']);
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, '<hr>', null, '</div>']);
 
         $node->appendInnerBlock(new BlockNode('core/c'));
 
@@ -727,7 +749,7 @@ final class BlockNodeTest extends TestCase
 
     public function testRemovingAChildKeepsNonWhitespaceMarkupAroundIt(): void
     {
-        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], '', ['<div>', null, '<hr>', null, '</div>']);
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, '<hr>', null, '</div>']);
 
         $node->removeInnerBlockAt(0);
 
@@ -736,7 +758,7 @@ final class BlockNodeTest extends TestCase
 
     public function testRemovingTheLastChildDropsTheSeparatorBeforeIt(): void
     {
-        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], '', ['<div>', null, "\n\n", null, '</div>']);
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, "\n\n", null, '</div>']);
 
         $node->removeInnerBlockAt(1);
 
@@ -760,7 +782,7 @@ final class BlockNodeTest extends TestCase
 
     public function testConstructorLeavesConsistentContentUntouched(): void
     {
-        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], '', ['<div>', null, '</div>']);
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], ['<div>', null, '</div>']);
 
         $this->assertSame(['<div>', null, '</div>'], $node->getInnerContent());
     }
@@ -769,7 +791,7 @@ final class BlockNodeTest extends TestCase
     {
         $a = new BlockNode('core/a');
         $b = new BlockNode('core/b');
-        $node = new BlockNode('core/group', [], [3 => $a], '', [7 => '<div>', 9 => null, 11 => '</div>']);
+        $node = new BlockNode('core/group', [], [3 => $a], [7 => '<div>', 9 => null, 11 => '</div>']);
 
         $this->assertSame([$a], $node->getInnerBlocks());
         $this->assertSame(['<div>', null, '</div>'], $node->getInnerContent());
@@ -824,7 +846,7 @@ final class BlockNodeTest extends TestCase
 
     public function testWrapInnerContentWithoutTagIsANoOp(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], '', ['<p>Hi</p>']);
+        $node = new BlockNode('core/paragraph', [], [], ['<p>Hi</p>']);
 
         $node->wrapInnerContent('plain text');
 
@@ -866,7 +888,7 @@ final class BlockNodeTest extends TestCase
 
     public function testWrapInnerContentSkipsVoidElements(): void
     {
-        $node = new BlockNode('core/image', [], [], '', ['<img src="a.jpg">']);
+        $node = new BlockNode('core/image', [], [], ['<img src="a.jpg">']);
 
         $node->wrapInnerContent('<figure><img class="cover" src="b.jpg"><br>');
 
@@ -880,7 +902,7 @@ final class BlockNodeTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('twice');
 
-        new BlockNode('core/group', [], [$twice, $twice], '', ['<div>', null, null, '</div>']);
+        new BlockNode('core/group', [], [$twice, $twice], ['<div>', null, null, '</div>']);
     }
 
     public function testSetInnerBlocksWithTheSameCountKeepsTheContentBetweenChildren(): void
@@ -888,7 +910,7 @@ final class BlockNodeTest extends TestCase
         $a = new BlockNode('core/a');
         $b = new BlockNode('core/b');
         $c = new BlockNode('core/c');
-        $node = new BlockNode('core/group', [], [$a, $b], '', ['<div>', null, '<hr>', null, '</div>']);
+        $node = new BlockNode('core/group', [], [$a, $b], ['<div>', null, '<hr>', null, '</div>']);
 
         $node->setInnerBlocks([$a, $b]);
         $this->assertSame(['<div>', null, '<hr>', null, '</div>'], $node->getInnerContent());
@@ -981,7 +1003,7 @@ final class BlockNodeTest extends TestCase
 
     public function testWrapInnerContentKeepsMarkupMadeOnlyOfVoidElements(): void
     {
-        $node = new BlockNode('core/separator', [], [], '', ['<p>x</p>']);
+        $node = new BlockNode('core/separator', [], [], ['<p>x</p>']);
 
         $node->wrapInnerContent('<br>');
 
@@ -990,7 +1012,7 @@ final class BlockNodeTest extends TestCase
 
     public function testWrapInnerContentWithoutAnyTagIsStillANoOp(): void
     {
-        $node = new BlockNode('core/group', [], [], '', ['<p>x</p>']);
+        $node = new BlockNode('core/group', [], [], ['<p>x</p>']);
 
         $node->wrapInnerContent('no tags here');
 
@@ -1105,7 +1127,7 @@ final class BlockNodeTest extends TestCase
 
     public function testAttributesThatCannotBeEncodedAreReportedInsteadOfDropped(): void
     {
-        $node = new BlockNode('core/paragraph', ['className' => 'keep-me'], [], '', ['<p>hi</p>']);
+        $node = new BlockNode('core/paragraph', ['className' => 'keep-me'], [], ['<p>hi</p>']);
         $node->setAttribute('bad', \INF);
 
         $this->expectException(RuntimeException::class);
@@ -1163,7 +1185,7 @@ final class BlockNodeTest extends TestCase
     public function testPlaceholdersAreFoundFromEitherEndOfTheContent(): void
     {
         $children = \array_map(static fn (int $i): BlockNode => new BlockNode("core/n{$i}"), \range(0, 9));
-        $node = new BlockNode('core/group', [], $children, '', ['<div>', '</div>']);
+        $node = new BlockNode('core/group', [], $children, ['<div>', '</div>']);
 
         // Exercises both scan directions: low indexes scan forward, high indexes scan backward.
         foreach ([0, 1, 4, 5, 8, 9] as $index) {
@@ -1194,7 +1216,7 @@ final class BlockNodeTest extends TestCase
 
     public function testInsertingIntoAContainerWithoutAnyClosingTagAppendsAtTheEnd(): void
     {
-        $node = new BlockNode('core/group', [], [], '', ['<div>']);
+        $node = new BlockNode('core/group', [], [], ['<div>']);
 
         $node->appendInnerBlock(new BlockNode('core/paragraph'));
 
@@ -1212,7 +1234,7 @@ final class BlockNodeTest extends TestCase
 
     public function testAChunkThatIsOnlyAClosingTagIsNotSplit(): void
     {
-        $node = new BlockNode('core/group', [], [], '', ['</div>']);
+        $node = new BlockNode('core/group', [], [], ['</div>']);
 
         $node->appendInnerBlock(new BlockNode('core/paragraph'));
 
@@ -1291,14 +1313,14 @@ final class BlockNodeTest extends TestCase
 
     public function testTheConstructorDoesNotSplitHandWrittenContent(): void
     {
-        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], '', ['<div>Hello</div>']);
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], ['<div>Hello</div>']);
 
         $this->assertSame(['<div>Hello</div>', null], $node->getInnerContent());
     }
 
     public function testWrapInnerContentOnlyClosesTheElementsLeftOpen(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], '', ['<p>x</p>']);
+        $node = new BlockNode('core/paragraph', [], [], ['<p>x</p>']);
 
         $node->wrapInnerContent('<div class="a"><span class="icon"></span><svg viewBox="0 0 1 1"/><em><b>');
 
@@ -1307,7 +1329,7 @@ final class BlockNodeTest extends TestCase
 
     public function testWrapInnerContentTreatsACloserAsClosingTheElementsInsideIt(): void
     {
-        $node = new BlockNode('core/paragraph', [], [], '', ['<p>x</p>']);
+        $node = new BlockNode('core/paragraph', [], [], ['<p>x</p>']);
 
         $node->wrapInnerContent('<div><section><span></section>');
 
@@ -1353,7 +1375,7 @@ final class BlockNodeTest extends TestCase
         $revisions[] = $node->getChildrenRevision();
         $node->setInnerBlocks([new BlockNode('core/d')]);
         $revisions[] = $node->getChildrenRevision();
-        $node->replaceInnerBlocksAt([0 => []]);
+        $node->applyReplacements([0 => []]);
         $revisions[] = $node->getChildrenRevision();
 
         $this->assertSame($revisions, \array_values(\array_unique($revisions)));
@@ -1374,7 +1396,7 @@ final class BlockNodeTest extends TestCase
                 \array_keys(\array_keys($content, null, true))
             );
 
-            return new BlockNode('core/group', [], $children, '', $content);
+            return new BlockNode('core/group', [], $children, $content);
         };
         $replacementsFor = static function (BlockNode $node) use ($plan): array {
             $replacements = [];
@@ -1396,7 +1418,7 @@ final class BlockNodeTest extends TestCase
         }
 
         $batch = $build();
-        $batch->replaceInnerBlocksAt($replacementsFor($batch));
+        $batch->applyReplacements($replacementsFor($batch));
 
         $this->assertSame($oneByOne->getInnerContent(), $batch->getInnerContent());
         $this->assertSame($this->names($oneByOne), $this->names($batch));
@@ -1419,6 +1441,12 @@ final class BlockNodeTest extends TestCase
         yield 'tight remove all' => [$tight, [0 => 0, 1 => 0, 2 => 0, 3 => 0]];
         yield 'tight remove around markup' => [$tight, [1 => 0, 2 => 0]];
         yield 'tight expand' => [$tight, [3 => 2, 0 => 0]];
+
+        $mixed = ['<div>', null, "\n", null, "\n\n", null, ' ', null, '</div>'];
+        yield 'expand the first after removing the second' => [$mixed, [0 => 2, 1 => 0]];
+        yield 'expand the first after expanding the second' => [$mixed, [0 => 3, 1 => 2]];
+        yield 'expand the second after removing the third' => [$mixed, [1 => 2, 2 => 0]];
+        yield 'expand the first of a tight list after removing the rest' => [$tight, [0 => 2, 1 => 0, 2 => 0]];
     }
 
     public function testBatchReplacementRejectsASibling(): void
@@ -1427,7 +1455,7 @@ final class BlockNodeTest extends TestCase
 
         $this->expectException(LogicException::class);
 
-        $node->replaceInnerBlocksAt([0 => [$node->getInnerBlocks()[1]]]);
+        $node->applyReplacements([0 => [$node->getInnerBlocks()[1]]]);
     }
 
     public function testRemovingEveryChildOfAWideParentStaysLinear(): void
@@ -1435,7 +1463,7 @@ final class BlockNodeTest extends TestCase
         $build = static fn (int $count): BlockNode => new BlockNode('core/group', [], \array_map(static fn (): BlockNode => new BlockNode('core/a'), \range(1, $count)));
         $time = static function (BlockNode $node): float {
             $start = \hrtime(true);
-            $node->replaceInnerBlocksAt(\array_fill(0, \count($node->getInnerBlocks()), []));
+            $node->applyReplacements(\array_fill(0, \count($node->getInnerBlocks()), []));
 
             return (float) (\hrtime(true) - $start);
         };
@@ -1445,6 +1473,77 @@ final class BlockNodeTest extends TestCase
 
         // Quadratic would be 16x; leave room for noise.
         $this->assertLessThan(8 * $small, $large);
+    }
+
+    public function testTheConstructorMovesAChildThatAlreadyHasAParent(): void
+    {
+        $group = $this->group();
+        [$a, $b] = $group->getInnerBlocks();
+
+        $cover = new BlockNode('core/cover', [], [$a]);
+
+        $this->assertSame([$b], $group->getInnerBlocks());
+        $this->assertSame($cover, $a->getParent());
+        $this->assertStringNotContainsString('<p>A</p>', (string) $group);
+    }
+
+    public function testCreateMovesTheChildrenOfAnotherNode(): void
+    {
+        $group = $this->group();
+        $children = $group->getInnerBlocks();
+
+        $copy = BlockNode::create(['blockName' => 'core/columns', 'innerBlocks' => $children]);
+
+        $this->assertSame($children, $copy->getInnerBlocks());
+        $this->assertSame([], $group->getInnerBlocks());
+    }
+
+    public function testANewSiblingCopiesTheSeparatorOfTheList(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b'), new BlockNode('core/c')], ["<div>\n", null, "\n", null, "\n", null, "\n</div>"]);
+
+        $node->insertInnerBlockAt(1, new BlockNode('core/x'));
+        $node->appendInnerBlock(new BlockNode('core/y'));
+        $node->replaceInnerBlockAt(0, ...[$node->getInnerBlocks()[0], new BlockNode('core/z')]);
+
+        $this->assertSame(["<div>\n", null, "\n", null, "\n", null, "\n", null, "\n", null, "\n", null, "\n</div>"], $node->getInnerContent());
+    }
+
+    public function testATightListStaysTight(): void
+    {
+        $node = new BlockNode('core/buttons', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, null, '</div>']);
+
+        $node->appendInnerBlock(new BlockNode('core/c'));
+        $node->insertInnerBlockAt(0, new BlockNode('core/d'));
+
+        $this->assertSame(['<div>', null, null, null, null, '</div>'], $node->getInnerContent());
+    }
+
+    public function testSiblingsSeparatedByMarkupGetABlankLine(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, '<hr>', null, '</div>']);
+
+        $node->appendInnerBlock(new BlockNode('core/c'));
+
+        $this->assertSame(['<div>', null, '<hr>', null, "\n\n", null, '</div>'], $node->getInnerContent());
+    }
+
+    public function testAnOnlyChildGetsABlankLine(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], ['<div>', null, '</div>']);
+
+        $node->appendInnerBlock(new BlockNode('core/b'));
+
+        $this->assertSame(['<div>', null, "\n\n", null, '</div>'], $node->getInnerContent());
+    }
+
+    public function testATopLevelSiblingGetsABlankLine(): void
+    {
+        $root = BlockNode::createRoot("<!-- wp:a /-->\n\n<!-- wp:b /-->");
+
+        $root->appendInnerBlock(new BlockNode('core/c'));
+
+        $this->assertSame("<!-- wp:a /-->\n\n<!-- wp:b /-->\n\n<!-- wp:c /-->", (string) $root);
     }
 
     // ------------------------------------------------------------------

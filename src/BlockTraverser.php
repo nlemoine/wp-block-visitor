@@ -117,7 +117,7 @@ final readonly class BlockTraverser
             }
         }
 
-        $parent->replaceInnerBlocksAt($replacements);
+        $parent->applyReplacements($replacements);
 
         return $stopped;
     }
