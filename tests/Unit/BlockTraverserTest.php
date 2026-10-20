@@ -436,7 +436,7 @@ HTML
     public function testAttributeChangesInPlaceAreSerialized(): void
     {
         $visitor = new class extends AbstractBlockVisitor {
-            public function enter(BlockNode $block): BlockNode|Traversal|null
+            public function enter(BlockNode $block): ?Traversal
             {
                 if ($block->getBlockName() === 'core/paragraph') {
                     $block->setAttribute('dropCap', true);
@@ -460,7 +460,7 @@ HTML
         $visitor = $this->logger(enter: static fn (): Traversal => Traversal::Remove);
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('enter() cannot return Traversal::Remove');
+        $this->expectExceptionMessage('enter() cannot return Traversal::Remove');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -470,7 +470,7 @@ HTML
         $visitor = $this->logger(leave: static fn (): Traversal => Traversal::SkipChildren);
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('leave() cannot return Traversal::SkipChildren');
+        $this->expectExceptionMessage('leave() cannot return Traversal::SkipChildren');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -486,7 +486,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('The children of "core/group" changed');
+        $this->expectExceptionMessage('The children of "core/group" changed');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -513,7 +513,7 @@ HTML
         });
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageIsOrContains('attachment missing');
+        $this->expectExceptionMessage('attachment missing');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -523,7 +523,7 @@ HTML
         $visitor = $this->logger(leave: static fn (BlockNode $block): ?BlockNode => $block->getBlockName() === 'core/inner' ? $block->getParent()?->getParent() : null);
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('that would close a cycle');
+        $this->expectExceptionMessage('that would close a cycle');
 
         (new BlockTraverser($visitor))->traverse('<!-- wp:outer --><div><!-- wp:mid --><div><!-- wp:inner /--></div><!-- /wp:mid --></div><!-- /wp:outer -->');
     }
@@ -598,7 +598,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('The children of "core/group" changed');
+        $this->expectExceptionMessage('The children of "core/group" changed');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }

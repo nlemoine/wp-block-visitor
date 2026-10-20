@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use function Mantle\Testing\manager;
 
-require_once dirname(__DIR__) . '/vendor/autoload.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 $rootDir = realpath(__DIR__ . '/..');
 
 // phpcs:disable WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_putenv

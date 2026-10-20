@@ -19,6 +19,7 @@
         "phpbench/phpbench": "^1.7",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12",
         "rector/rector": "^2.2",
         "slevomat/coding-standard": "^8.22",
         "syde/phpcs": "^1.0",
@@ -33,9 +34,9 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "n5s\\BlockVisitor\\Tests\\": "tests/",
+            "n5s\\BlockVisitor\\Benchmarks\\": "benchmarks/",
             "n5s\\BlockVisitor\\Examples\\": "examples/",
-            "n5s\\BlockVisitor\\Benchmarks\\": "benchmarks/"
+            "n5s\\BlockVisitor\\Tests\\": "tests/"
         }
     },
     "config": {

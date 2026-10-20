@@ -848,7 +848,7 @@ final class BlockNodeTest extends TestCase
         $node = new BlockNode('core/group');
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('that would close a cycle');
+        $this->expectExceptionMessage('that would close a cycle');
 
         $node->setInnerBlocks([$node]);
     }
@@ -1037,7 +1037,7 @@ final class BlockNodeTest extends TestCase
         $node = new BlockNode('core/paragraph');
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessageIsOrContains('must be a map');
+        $this->expectExceptionMessage('must be a map');
 
         $node->setAttributes(['a', 'b']);
     }
@@ -1111,7 +1111,7 @@ final class BlockNodeTest extends TestCase
         $node->setAttribute('bad', \INF);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageIsOrContains('JSON cannot encode');
+        $this->expectExceptionMessage('JSON cannot encode');
 
         $node->__toString();
     }
@@ -1140,7 +1140,7 @@ final class BlockNodeTest extends TestCase
         $inner = $outer->getInnerBlocks()[0]->getInnerBlocks()[0];
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessageIsOrContains('that would close a cycle');
+        $this->expectExceptionMessage('that would close a cycle');
 
         $inner->appendInnerBlock($outer);
     }
