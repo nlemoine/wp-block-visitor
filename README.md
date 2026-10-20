@@ -85,15 +85,15 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 }
 ```
 
-`enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`.
+`enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`. Since the children of a node returned from `enter()` are visited, returning `BlockNode::wrap($block, ...)` there visits `$block` again and wraps it forever: wrap from `leave()`.
 
-**Ancestors and siblings** are never mutated from a visitor. After each hook the traverser checks that the parent's children list has the same size and still holds the current node at the same place, and throws a `LogicException` otherwise. That covers removals, insertions and reorderings anywhere in the list, from the current node's hooks or from its descendants'. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
+**Ancestors and siblings** are never mutated from a visitor. Every node counts the changes made to its children list, and after each hook the traverser checks that the parent's count has not moved, throwing a `LogicException` otherwise. That covers removals, insertions, swaps and reorderings anywhere in the list, from the current node's hooks or from its descendants'. Changing the attributes or the content of an ancestor does not touch its children and is not rejected. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
 
-A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. Attaching a block somewhere takes it away from its former parent, and a block can never be added under itself or under one of its own descendants.
+A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. All the values returned for one sibling list are applied in a single pass, so removing every child of a wide parent stays linear. Attaching a block somewhere takes it away from its former parent, and a block can never be added under itself or under one of its own descendants.
 
 Exceptions thrown by a visitor propagate unchanged. That is the way to abort the traversal of a document with an error. The tree is then in an undefined state: replacements staged by earlier siblings are not applied, so discard it rather than serializing it.
 
-Returning a node that is the current node's parent or one of its ancestors is rejected too, since it would create a cycle.
+Returning a node that is the current node's parent or one of its ancestors is rejected too, since it would create a cycle. So is returning a sibling of the current node, from either hook: moving it would shift the siblings still to visit. A list returned from `leave()` must only hold `BlockNode` instances.
 
 ### Multiple visitors
 
@@ -111,7 +111,7 @@ $traverser = new BlockTraverser($cleanupVisitor, $galleryVisitor, $treeVisitor);
 BlockNode::create($parsedBlock);                          // from a parse_blocks() array
 BlockNode::createFromString('<!-- wp:paragraph -->...');  // first named block of the markup
 BlockNode::createRoot($postContent);                      // root holding every top-level block
-BlockNode::wrap($child, 'core/group', $attrs, $before, $after);
+BlockNode::wrap($child, 'core/group', $attrs, $before, $after); // from leave(), or put it in $child's place yourself
 ```
 
 ### Reading
@@ -148,7 +148,7 @@ $block->removeClassName('is-style-fill');
 
 ### Children
 
-Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated. Inserting into a container the parser left empty splits its markup so the block lands inside the wrapper rather than after it.
+Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated. Inserting into a container the parser left empty splits its markup so the block lands inside the wrapper rather than after it. A block appears at most once in the tree: inserting a node that is already a child of the same parent moves it, and listing the same node twice throws a `LogicException`.
 
 ```php
 $block->appendInnerBlock($child);
@@ -164,15 +164,15 @@ $block->setInnerBlocks([$a, $b]);        // same count: content untouched; other
 ### Content
 
 ```php
-$block->setInnerContent('<p>Hello</p>');                  // single chunk, placeholders appended
+$block->setInnerContent('<p>Hello</p>');                  // single chunk, placeholders appended after it
 $block->setInnerContent(["\n<div>", null, "</div>\n"]);  // full chunk list
-$block->wrapInnerContent('<div class="wp-block-group">'); // closing tags are generated, void elements excepted
+$block->wrapInnerContent('<div class="wp-block-group">'); // closing tags are generated for the elements left open
 $block->clearContent();                                   // drops the HTML, keeps the placeholders
 ```
 
 ### Rejected input
 
-Block names must look like `paragraph` or `core/paragraph`, attributes must be a map rather than a list, and attribute values must be JSON-encodable. Each of those would otherwise produce a delimiter that WordPress reparses as something else, swallowing the blocks that follow. They raise `InvalidArgumentException`, or `RuntimeException` at serialization time for an unencodable value.
+Block names must look like `paragraph`, `core/paragraph` or `my_plugin/my_block`, the same names the WordPress parser reads, and `@root` is reserved to `createRoot()`. Attributes must be a map rather than a list, from the constructor as well as the setters, and attribute values must be JSON-encodable. Each of those would otherwise produce a delimiter that WordPress reparses as something else, swallowing the blocks that follow. They raise `InvalidArgumentException`, or `RuntimeException` at serialization time for an unencodable value.
 
 ### Serialization
 
