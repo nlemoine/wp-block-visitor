@@ -112,7 +112,10 @@ BlockNode::create($parsedBlock);                          // from a parse_blocks
 BlockNode::createFromString('<!-- wp:paragraph -->...');  // first named block of the markup
 BlockNode::createRoot($postContent);                      // root holding every top-level block
 BlockNode::wrap($child, 'core/group', $attrs, $before, $after); // from leave(), or put it in $child's place yourself
+new BlockNode('core/group', $attrs, $children, $innerContent);  // children that have a parent are moved here
 ```
+
+Members tagged `@internal` (`getChildrenRevision()`, `applyReplacements()`) are public only so the traverser can reach them. They are not part of the supported API and can change in any release.
 
 ### Reading
 
@@ -125,7 +128,7 @@ $block->getClassNames();
 $block->hasClassName('is-style-outline');
 $block->getInnerBlocks();
 $block->getInnerContent();      // HTML chunks, null marks the position of a child
-$block->getInnerHTML();         // as parsed; not updated by mutators, only clearContent() resets it
+$block->getInnerHTML();         // the HTML chunks of innerContent joined, as the parser builds it
 $block->getParent();
 $block->getDepth();             // top-level blocks are at depth 0
 $block->isRoot();
@@ -161,6 +164,8 @@ $block->removeInnerBlockAt(1);
 $block->setInnerBlocks([$a, $b]);        // same count: content untouched; otherwise keeps the HTML before the first child and after the last one
 ```
 
+New siblings are joined with the separator the list already uses between its first two children: the same whitespace chunk, nothing when they are adjacent, and a blank line (`\n\n`) when the list has fewer than two children or markup between them. At the top level, the separator is always a blank line.
+
 ### Content
 
 ```php
@@ -185,10 +190,9 @@ $block->toArray();  // parse_blocks() shape
 
 ### Prime the attachment cache in one query
 
-WordPress resolves each media block on render with its own `get_post()` call, one query per image, cover or video. Collecting the IDs first turns them into a single query:
+WordPress resolves each media block on render with its own `get_post()` call, one query per image, cover or video. Collecting the IDs first turns them into a single query. The visitor is not shipped with the package: copy [`examples/AttachmentIdVisitor.php`](examples/AttachmentIdVisitor.php) into your project under your own namespace.
 
 ```php
-use n5s\BlockVisitor\Examples\AttachmentIdVisitor;
 
 $visitor = new AttachmentIdVisitor();
 (new BlockTraverser($visitor))->traverse($post->post_content);
