@@ -164,6 +164,8 @@ $block->removeInnerBlockAt(1);
 $block->setInnerBlocks([$a, $b]);        // same count: content untouched; otherwise keeps the HTML before the first child and after the last one
 ```
 
+`clone $block` copies the whole subtree: the children are copies too, and the copy has no parent until it is inserted somewhere, so changing it never touches the original.
+
 New siblings are joined with the separator the list already uses between its first two children: the same whitespace chunk, nothing when they are adjacent, and a blank line (`\n\n`) when the list has fewer than two children or markup between them. At the top level, the separator is always a blank line.
 
 ### Content

@@ -710,6 +710,28 @@ final class BlockNode implements Stringable
     }
 
     // -------------------------------------------------------------------------
+    //  Copy
+    // -------------------------------------------------------------------------
+
+    /**
+     * A copy is a new subtree: its children are copies too, and it has no parent until it is
+     * inserted somewhere. Without this, the copy would share its children with the original,
+     * so a change to one would show in both and moving one child would break the other.
+     */
+    public function __clone()
+    {
+        $this->parent = null;
+        // A copy made during a traversal is not part of it.
+        $this->childrenLocks = 0;
+
+        foreach ($this->innerBlocks as $index => $child) {
+            $copy = clone $child;
+            $copy->parent = $this;
+            $this->innerBlocks[$index] = $copy;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     //  Serialization
     // -------------------------------------------------------------------------
 

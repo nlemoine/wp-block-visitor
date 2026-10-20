@@ -1519,6 +1519,53 @@ final class BlockNodeTest extends TestCase
         $this->assertSame([], $group->getInnerBlocks());
     }
 
+    public function testACloneIsADetachedCopyOfTheWholeSubtree(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:group --><div><!-- wp:columns --><div><!-- wp:column /--></div><!-- /wp:columns --></div><!-- /wp:group -->');
+        $group = $root->getInnerBlocks()[0];
+        $before = (string) $group;
+
+        $copy = clone $group;
+        $columns = $copy->getInnerBlocks()[0];
+
+        $this->assertNull($copy->getParent());
+        $this->assertSame($before, (string) $copy);
+        $this->assertNotSame($group->getInnerBlocks()[0], $columns);
+        $this->assertSame($copy, $columns->getParent());
+        $this->assertNotSame($group->getInnerBlocks()[0]->getInnerBlocks()[0], $columns->getInnerBlocks()[0]);
+        $this->assertSame($columns, $columns->getInnerBlocks()[0]->getParent());
+    }
+
+    public function testChangingACloneLeavesTheOriginalAlone(): void
+    {
+        $group = $this->group();
+        $before = (string) $group;
+
+        $copy = clone $group;
+        $copy->getInnerBlocks()[0]->setAttribute('align', 'wide');
+        (new BlockNode('core/column'))->appendInnerBlock($copy->getInnerBlocks()[1]);
+
+        $this->assertSame($before, (string) $group);
+        $this->assertCount(1, $copy->getInnerBlocks());
+        $this->assertSame($group, $group->getInnerBlocks()[1]->getParent());
+    }
+
+    public function testACloneTakenDuringATraversalIsNotLocked(): void
+    {
+        $group = $this->group();
+        $group->lockChildren();
+
+        try {
+            $copy = clone $group;
+        } finally {
+            $group->unlockChildren();
+        }
+
+        $copy->appendInnerBlock(new BlockNode('core/separator'));
+
+        $this->assertCount(3, $copy->getInnerBlocks());
+    }
+
     public function testANewSiblingCopiesTheSeparatorOfTheList(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b'), new BlockNode('core/c')], ["<div>\n", null, "\n", null, "\n", null, "\n</div>"]);
