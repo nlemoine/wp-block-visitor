@@ -12,16 +12,19 @@ use n5s\BlockVisitor\BlockNode;
  * Mutating the current node and its own subtree in place is always allowed.
  * Structural changes to the current node itself (replace, remove, expand, wrap)
  * go through the return value of `leave()`. Ancestors and siblings must never be
- * mutated from a visitor: the traverser rejects it, as it rejects a returned node that
- * is an ancestor of the current one. An exception thrown from a hook propagates and
- * leaves the tree in an undefined state.
+ * mutated from a visitor: the traverser rejects any change to the children of an
+ * ancestor, as it rejects a returned node that is an ancestor or a sibling of the
+ * current one. An exception thrown from a hook propagates and leaves the tree in an
+ * undefined state.
  */
 interface BlockVisitorInterface
 {
     /**
      * Called before the children of the node are visited.
      *
-     * Children added to the node here will be visited.
+     * Children added to the node here will be visited. So are the children of a node
+     * returned here: returning `BlockNode::wrap($block, ...)` would visit `$block` again
+     * and wrap it forever, wrap from `leave()` instead.
      *
      * @return BlockNode|Traversal|null `null` to do nothing, a node to replace the current one
      *                                  (its children are then visited), `Traversal::SkipChildren`

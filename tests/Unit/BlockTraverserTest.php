@@ -619,6 +619,147 @@ HTML
         (new BlockTraverser($visitor))->traverse($root);
     }
 
+    public function testReplacingAnEarlierSiblingFromAHookIsRejected(): void
+    {
+        $visitor = $this->logger(
+            enter: static function (BlockNode $block): null {
+                if (\str_contains($block->getInnerHTML(), '<p>B</p>')) {
+                    $block->getParent()?->replaceInnerBlockAt(0, BlockNode::createFromString('<!-- wp:paragraph --><p>X</p><!-- /wp:paragraph -->'));
+                }
+
+                return null;
+            },
+            leave: static fn (BlockNode $block): ?Traversal => \str_contains($block->getInnerHTML(), '<p>A</p>') ? Traversal::Remove : null,
+        );
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('The children of "core/group" changed');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testRemovingAndInsertingASiblingFromOneHookIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static function (BlockNode $block): null {
+            $parent = $block->getParent();
+            if ($parent instanceof BlockNode && \str_contains($block->getInnerHTML(), '<p>B</p>')) {
+                $parent->removeInnerBlockAt(0);
+                $parent->insertInnerBlockAt(0, BlockNode::createFromString('<!-- wp:paragraph --><p>X</p><!-- /wp:paragraph -->'));
+            }
+
+            return null;
+        });
+
+        $this->expectException(LogicException::class);
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testAGrandchildTouchingItsGrandparentIsRejectedBeforeTheParentLeaves(): void
+    {
+        $visitor = $this->logger(enter: static function (BlockNode $block): null {
+            if ($block->getBlockName() === 'core/paragraph') {
+                $block->getParent()?->getParent()?->appendInnerBlock(BlockNode::createFromString('<!-- wp:late /-->'));
+            }
+
+            return null;
+        });
+
+        try {
+            (new BlockTraverser($visitor))->traverse(self::GROUP);
+            $this->fail('The change to the root should be rejected');
+        } catch (LogicException) {
+        }
+
+        $this->assertNotContains('leave core/group', $visitor->log);
+    }
+
+    public function testChangingTheContentOfAnAncestorIsAllowed(): void
+    {
+        $visitor = $this->logger(enter: static function (BlockNode $block): null {
+            if ($block->getBlockName() === 'core/paragraph') {
+                $block->getParent()?->addClassName('has-paragraph');
+            }
+
+            return null;
+        });
+
+        $root = (new BlockTraverser($visitor))->traverse(self::GROUP);
+
+        $this->assertTrue($root->getInnerBlocks()[0]->hasClassName('has-paragraph'));
+    }
+
+    public function testLeaveReturningASiblingIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static function (BlockNode $block): ?BlockNode {
+            $parent = $block->getParent();
+
+            return $parent instanceof BlockNode && \str_contains($block->getInnerHTML(), '<p>A</p>') ? $parent->getInnerBlocks()[1] : null;
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('leave() cannot return a sibling');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testLeaveReturningASiblingInAListIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static function (BlockNode $block): ?array {
+            $parent = $block->getParent();
+
+            return $parent instanceof BlockNode && \str_contains($block->getInnerHTML(), '<p>A</p>') ? [$block, $parent->getInnerBlocks()[1]] : null;
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('leave() cannot return a sibling');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testEnterReturningASiblingIsRejected(): void
+    {
+        $visitor = $this->logger(enter: static function (BlockNode $block): ?BlockNode {
+            $parent = $block->getParent();
+
+            return $parent instanceof BlockNode && \str_contains($block->getInnerHTML(), '<p>A</p>') ? $parent->getInnerBlocks()[1] : null;
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('enter() cannot return a sibling');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testLeaveReturningAListWithSomethingElseThanANodeIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static fn (BlockNode $block): ?array => $block->getBlockName() === 'core/heading' ? [$block, 'oops'] : null);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('holding string at position 1');
+
+        (new BlockTraverser($visitor))->traverse(self::HEADING);
+    }
+
+    public function testRemovingEveryChildOfAWideParentStaysLinear(): void
+    {
+        $visitor = $this->logger(leave: static fn (BlockNode $block): ?Traversal => $block->getBlockName() === 'core/paragraph' ? Traversal::Remove : null);
+        $markup = static fn (int $count): string => '<!-- wp:group --><div>' . \str_repeat("<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->\n\n", $count) . '</div><!-- /wp:group -->';
+        $time = static function (string $html) use ($visitor): float {
+            $root = BlockNode::createRoot($html);
+            $start = \hrtime(true);
+            (new BlockTraverser($visitor))->traverse($root);
+
+            return (float) (\hrtime(true) - $start);
+        };
+
+        $small = $time($markup(5000));
+        $large = $time($markup(20000));
+
+        // Quadratic would be 16x; leave room for noise.
+        $this->assertLessThan(8 * $small, $large);
+    }
+
     // ------------------------------------------------------------------
     //  Helpers
     // ------------------------------------------------------------------

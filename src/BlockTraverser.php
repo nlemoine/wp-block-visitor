@@ -62,13 +62,11 @@ final readonly class BlockTraverser
     {
         $stopped = false;
 
-        /** @var list<array{int, list<BlockNode>}> $replacements */
+        /** @var array<int, list<BlockNode>> $replacements */
         $replacements = [];
 
-        $children = $parent->getInnerBlocks();
-        $count = \count($children);
-
-        foreach ($children as $index => $child) {
+        foreach ($parent->getInnerBlocks() as $index => $child) {
+            $revision = $parent->getChildrenRevision();
             $result = $visitor->enter($child);
 
             if ($result === Traversal::Stop) {
@@ -80,18 +78,20 @@ final readonly class BlockTraverser
                 throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
             }
 
-            $children = $parent->getInnerBlocks();
-            if (\count($children) !== $count || ($children[$index] ?? null) !== $child) {
-                throw $this->touched($parent, $index, $child);
-            }
+            $this->assertUntouched($parent, $revision, $index, $child);
             if ($result instanceof BlockNode && $result !== $child) {
+                $this->assertNotSibling($parent, $result, 'enter');
                 $parent->replaceInnerBlockAt($index, $result);
                 $child = $result;
+                $revision = $parent->getChildrenRevision();
             }
 
-            if ($result !== Traversal::SkipChildren && $this->traverseChildren($child, $visitor)) {
-                $stopped = true;
-                break;
+            if ($result !== Traversal::SkipChildren) {
+                $stopped = $this->traverseChildren($child, $visitor);
+                $this->assertUntouched($parent, $revision, $index, $child);
+                if ($stopped) {
+                    break;
+                }
             }
 
             $result = $visitor->leave($child);
@@ -105,40 +105,88 @@ final readonly class BlockTraverser
                 throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
             }
 
-            $children = $parent->getInnerBlocks();
-            if (\count($children) !== $count || ($children[$index] ?? null) !== $child) {
-                throw $this->touched($parent, $index, $child);
-            }
+            $this->assertUntouched($parent, $revision, $index, $child);
 
             if ($result === Traversal::Remove) {
-                $replacements[] = [$index, []];
+                $replacements[$index] = [];
             } elseif (\is_array($result)) {
-                $replacements[] = [$index, \array_values($result)];
+                $replacements[$index] = $this->replacementList($parent, $result, $child, $visitor);
             } elseif ($result instanceof BlockNode && $result !== $child) {
-                $replacements[] = [$index, [$result]];
+                $this->assertNotSibling($parent, $result, 'leave');
+                $replacements[$index] = [$result];
             }
         }
 
-        // Applied last to first so that an expansion does not shift the indexes still to apply.
-        foreach (\array_reverse($replacements) as [$index, $nodes]) {
-            $parent->replaceInnerBlockAt($index, ...$nodes);
-        }
+        $parent->replaceInnerBlocksAt($replacements);
 
         return $stopped;
     }
 
     /**
-     * Built only when a hook touched the children of the parent: the list changed size or the
-     * node visited at the given index is no longer there. The check itself is inline, in O(1).
+     * Rejects a hook that changed the children of the parent, which would make the indexes of the
+     * pass point at the wrong nodes. Checked in O(1) through the parent's revision counter.
+     *
+     * @throws LogicException
      */
-    private function touched(BlockNode $parent, int $index, BlockNode $child): LogicException
+    private function assertUntouched(BlockNode $parent, int $revision, int $index, BlockNode $child): void
     {
-        return new LogicException(\sprintf(
+        if ($parent->getChildrenRevision() === $revision) {
+            return;
+        }
+
+        throw new LogicException(\sprintf(
             'The children of "%s" changed while visiting its child %d "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
             $parent->getBlockName() ?? '(freeform)',
             $index,
             $child->getBlockName() ?? '(freeform)',
         ));
+    }
+
+    /**
+     * Rejects a returned sibling: moving it would shift the indexes of the pass.
+     *
+     * @throws LogicException
+     */
+    private function assertNotSibling(BlockNode $parent, BlockNode $node, string $hook): void
+    {
+        if ($node->getParent() !== $parent) {
+            return;
+        }
+
+        throw new LogicException(\sprintf(
+            '%s() cannot return a sibling of the current node ("%s" under "%s"), return a copy or a new node instead.',
+            $hook,
+            $node->getBlockName() ?? '(freeform)',
+            $parent->getBlockName() ?? '(freeform)',
+        ));
+    }
+
+    /**
+     * @param array<mixed> $result
+     * @return list<BlockNode>
+     *
+     * @throws LogicException When an item is not a node, or is a sibling of the current one.
+     */
+    private function replacementList(BlockNode $parent, array $result, BlockNode $child, BlockVisitorInterface $visitor): array
+    {
+        $nodes = [];
+        foreach (\array_values($result) as $position => $node) {
+            if (!$node instanceof BlockNode) {
+                throw new LogicException(\sprintf(
+                    '%s::leave() returned a list holding %s at position %d, only BlockNode instances are allowed.',
+                    $visitor::class,
+                    \get_debug_type($node),
+                    $position,
+                ));
+            }
+
+            if ($node !== $child) {
+                $this->assertNotSibling($parent, $node, 'leave');
+            }
+            $nodes[] = $node;
+        }
+
+        return $nodes;
     }
 
     /**
