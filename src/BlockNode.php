@@ -50,15 +50,16 @@ final class BlockNode implements Stringable
     private const string BLOCK_SEPARATOR = "\n\n";
 
     /**
+     * Block names that can be written into a delimiter without breaking out of it, the same
+     * set the WordPress block parser accepts.
+     */
+    private const string BLOCK_NAME_PATTERN = '#^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?\z#';
+
+    /**
      * HTML elements that never have a closing tag.
      *
      * @see https://html.spec.whatwg.org/multipage/syntax.html#void-elements
      */
-    /**
-     * Block names that can be written into a delimiter without breaking out of it.
-     */
-    private const string BLOCK_NAME_PATTERN = '#^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?$#';
-
     private const array VOID_ELEMENTS = [
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr',
     ];
@@ -73,10 +74,21 @@ final class BlockNode implements Stringable
      */
     private array $innerContent;
 
+    private ?BlockNode $parent = null;
+
+    /**
+     * Bumped by every change to the children list, so the traverser can tell in O(1)
+     * whether a hook touched it.
+     */
+    private int $childrenRevision = 0;
+
     /**
      * @param array<string, mixed> $attrs
      * @param list<array<string, mixed>|BlockNode> $innerBlocks
      * @param list<string|null> $innerContent
+     *
+     * @throws InvalidArgumentException When the name or the attributes would not survive serialization.
+     * @throws LogicException When the same node is listed twice.
      */
     public function __construct(
         private ?string $blockName = null,
@@ -85,17 +97,15 @@ final class BlockNode implements Stringable
         // phpcs:ignore Syde.NamingConventions.VariableName.SnakeCaseVar
         private string $innerHTML = '',
         array $innerContent = [],
-        private ?BlockNode $parent = null,
     ) {
 
         $this->assertBlockName($blockName);
+        $this->assertAttributes($attrs);
 
         $this->innerContent = \array_values($innerContent);
         $this->innerBlocks = \array_values(\array_map(
             function (array|BlockNode $block): BlockNode {
-                if (!$block instanceof BlockNode) {
-                    return self::create($block, $this);
-                }
+                $block = $block instanceof BlockNode ? $block : self::create($block);
 
                 // No guard needed: a node under construction cannot be anyone's ancestor yet,
                 // and `wrap()` relies on the child still being listed by its former parent.
@@ -105,6 +115,7 @@ final class BlockNode implements Stringable
             },
             $innerBlocks
         ));
+        $this->assertDistinct($this->innerBlocks);
 
         $this->reconcilePlaceholders();
     }
@@ -112,7 +123,7 @@ final class BlockNode implements Stringable
     /**
      * @param array<string, mixed> $parsedBlock A `parse_blocks()` array, see the `ParsedBlock` shape.
      */
-    public static function create(array $parsedBlock, ?BlockNode $parent = null): self
+    public static function create(array $parsedBlock): self
     {
         /** @var ParsedBlock $parsedBlock */
         return new self(
@@ -121,7 +132,6 @@ final class BlockNode implements Stringable
             $parsedBlock['innerBlocks'] ?? [],
             $parsedBlock['innerHTML'] ?? '',
             $parsedBlock['innerContent'] ?? [],
-            $parent,
         );
     }
 
@@ -133,7 +143,7 @@ final class BlockNode implements Stringable
      *
      * @throws InvalidArgumentException When the markup is empty.
      */
-    public static function createFromString(string $html, ?BlockNode $parent = null): self
+    public static function createFromString(string $html): self
     {
         $parsedBlocks = \trim($html) === '' ? [] : \parse_blocks($html);
         if ($parsedBlocks === []) {
@@ -142,21 +152,27 @@ final class BlockNode implements Stringable
 
         foreach ($parsedBlocks as $parsedBlock) {
             if ($parsedBlock['blockName'] !== null) {
-                return self::create($parsedBlock, $parent);
+                return self::create($parsedBlock);
             }
         }
 
-        return self::create($parsedBlocks[0], $parent);
+        return self::create($parsedBlocks[0]);
     }
 
     /**
      * Creates a root node holding every top-level block of a document.
+     *
+     * The parser keeps the whitespace between top-level blocks as freeform blocks, so the
+     * root content starts as bare placeholders and serializes back byte for byte.
      */
     public static function createRoot(string $html): self
     {
+        $parsedBlocks = \parse_blocks($html);
+
         return self::create([
             'blockName' => self::ROOT_BLOCK_NAME,
-            'innerBlocks' => \parse_blocks($html),
+            'innerBlocks' => $parsedBlocks,
+            'innerContent' => \array_fill(0, \count($parsedBlocks), null),
         ]);
     }
 
@@ -164,7 +180,9 @@ final class BlockNode implements Stringable
      * Creates a new block wrapping the given node.
      *
      * The child is not removed from its current parent: when used from a visitor,
-     * the traverser replaces the child by the wrapper afterwards.
+     * the traverser replaces the child by the wrapper afterwards. Outside a visitor, put
+     * the wrapper in the child's place yourself with `replaceInnerBlockAt()`, otherwise
+     * the child is listed twice.
      *
      * @param array<string, mixed> $attrs
      * @param string $before HTML emitted before the wrapped block, e.g. `<div class="wp-block-group">`.
@@ -195,8 +213,18 @@ final class BlockNode implements Stringable
         return $this->blockName;
     }
 
+    /**
+     * @throws InvalidArgumentException When the name is invalid or is the root name.
+     */
     public function setBlockName(string $newBlockName): self
     {
+        if ($newBlockName === self::ROOT_BLOCK_NAME) {
+            throw new InvalidArgumentException(\sprintf(
+                'Cannot rename a block to "%s": that would drop its delimiters, use BlockNode::createRoot() for a document root.',
+                self::ROOT_BLOCK_NAME,
+            ));
+        }
+
         $this->assertBlockName($newBlockName);
 
         $this->blockName = $newBlockName;
@@ -249,10 +277,21 @@ final class BlockNode implements Stringable
     }
 
     /**
+     * Number of changes made to the children list so far.
+     *
+     * @internal Lets the traverser tell whether a hook touched the children of an ancestor.
+     */
+    public function getChildrenRevision(): int
+    {
+        return $this->childrenRevision;
+    }
+
+    /**
      * Replaces the child at the given index by zero, one or more nodes.
      *
      * Zero nodes removes the child and its placeholder, one node swaps it in place,
-     * several nodes expand it into siblings separated by a blank line.
+     * several nodes expand it into siblings separated by a blank line. A replacement
+     * that is already another child of this node is moved, not duplicated.
      */
     public function replaceInnerBlockAt(int $index, BlockNode ...$replacements): self
     {
@@ -262,20 +301,15 @@ final class BlockNode implements Stringable
         }
 
         $replacements = \array_values($replacements);
+        $this->assertDistinct($replacements);
         foreach ($replacements as $node) {
             $this->assertAdoptable($node);
         }
 
         $old = $this->innerBlocks[$index];
-        $position = $this->placeholderPosition($index);
-
-        \array_splice($this->innerBlocks, $index, 1, $replacements);
-
-        if ($replacements === []) {
-            $this->removePlaceholderAt($position);
-        } else {
-            \array_splice($this->innerContent, $position, 1, $this->placeholderRun(\count($replacements), false, false));
-        }
+        $index = $this->removeOwnChildren($replacements, $index, $old);
+        $this->spliceChild($index, $replacements);
+        $this->childrenRevision++;
 
         if (!\in_array($old, $replacements, true)) {
             $this->detach($old);
@@ -288,7 +322,53 @@ final class BlockNode implements Stringable
     }
 
     /**
+     * Replaces several children at once, in a single pass over the lists.
+     *
+     * Gives the same result as calling `replaceInnerBlockAt()` for each entry from the highest
+     * index down, without its quadratic cost on a node with many children. Unlike it, a
+     * replacement cannot be another child of this node.
+     *
+     * @internal Used by the traverser to apply what `leave()` returned.
+     *
+     * @param array<int, list<BlockNode>> $replacements Replacement nodes, keyed by the index of the child they replace.
+     *
+     * @throws LogicException When a replacement is another child of this node, or appears twice.
+     */
+    public function replaceInnerBlocksAt(array $replacements): self
+    {
+        if ($replacements === []) {
+            return $this;
+        }
+
+        $adopted = $this->assertReplacements($replacements);
+        $this->innerContent = $this->replacedContent($replacements);
+
+        $old = $this->innerBlocks;
+        $this->innerBlocks = [];
+        foreach ($old as $index => $node) {
+            if (!\array_key_exists($index, $replacements)) {
+                $this->innerBlocks[] = $node;
+                continue;
+            }
+
+            \array_push($this->innerBlocks, ...$replacements[$index]);
+            if (!\in_array($node, $replacements[$index], true)) {
+                $this->detach($node);
+            }
+        }
+        $this->childrenRevision++;
+
+        foreach ($adopted as $node) {
+            $this->adopt($node);
+        }
+
+        return $this;
+    }
+
+    /**
      * Inserts nodes before the child at the given index, or at the end when the index equals the count.
+     *
+     * A node that is already a child of this node is moved, not duplicated.
      */
     public function insertInnerBlockAt(int $index, BlockNode ...$nodes): self
     {
@@ -302,12 +382,16 @@ final class BlockNode implements Stringable
             return $this;
         }
 
+        $this->assertDistinct($nodes);
         foreach ($nodes as $node) {
             $this->assertAdoptable($node);
         }
 
+        $index = $this->removeOwnChildren($nodes, $index);
+        $count = \count($this->innerBlocks);
+
         if ($count === 0) {
-            $position = $this->emptyContainerPosition();
+            $position = $this->emptyContainerPosition(true);
             $run = $this->placeholderRun(\count($nodes), false, false);
         } elseif ($index === $count) {
             $position = $this->placeholderPosition($count - 1) + 1;
@@ -319,6 +403,7 @@ final class BlockNode implements Stringable
 
         \array_splice($this->innerContent, $position, 0, $run);
         \array_splice($this->innerBlocks, $index, 0, $nodes);
+        $this->childrenRevision++;
 
         foreach ($nodes as $node) {
             $this->adopt($node);
@@ -370,6 +455,7 @@ final class BlockNode implements Stringable
     public function setInnerBlocks(array $innerBlocks): self
     {
         $new = $this->toNodes($innerBlocks);
+        $this->assertDistinct($new);
         foreach ($new as $node) {
             $this->assertAdoptable($node);
         }
@@ -379,7 +465,7 @@ final class BlockNode implements Stringable
         if (\count($new) !== \count($old)) {
             $positions = \array_keys($this->innerContent, null, true);
             if ($positions === []) {
-                $start = $this->emptyContainerPosition();
+                $start = $this->emptyContainerPosition(true);
                 $length = 0;
             } else {
                 $start = $positions[0];
@@ -390,9 +476,14 @@ final class BlockNode implements Stringable
         }
 
         $this->innerBlocks = $new;
+        $this->childrenRevision++;
 
+        $kept = [];
+        foreach ($new as $node) {
+            $kept[\spl_object_id($node)] = true;
+        }
         foreach ($old as $node) {
-            if (!\in_array($node, $new, true)) {
+            if (!isset($kept[\spl_object_id($node)])) {
                 $this->detach($node);
             }
         }
@@ -437,18 +528,29 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Wraps the content with the given opening HTML; closing tags are generated.
+     * Wraps the content with the given opening HTML; closing tags are generated for the
+     * elements it leaves open.
      */
     public function wrapInnerContent(string $html): self
     {
         $processor = new WP_HTML_Tag_Processor($html);
-        $tagClosers = [];
+        $open = [];
         $found = false;
-        while ($processor->next_tag()) {
-            $found = true;
+        while ($processor->next_tag(['tag_closers' => 'visit'])) {
             $tagName = \strtolower((string) $processor->get_tag());
-            if (!\in_array($tagName, self::VOID_ELEMENTS, true)) {
-                $tagClosers[] = $tagName;
+
+            if ($processor->is_tag_closer()) {
+                // A closer also ends the elements still open inside the one it closes.
+                $index = \array_search($tagName, \array_reverse($open, true), true);
+                if ($index !== false) {
+                    \array_splice($open, $index);
+                }
+                continue;
+            }
+
+            $found = true;
+            if (!$processor->has_self_closing_flag() && !\in_array($tagName, self::VOID_ELEMENTS, true)) {
+                $open[] = $tagName;
             }
         }
 
@@ -458,7 +560,7 @@ final class BlockNode implements Stringable
 
         \array_unshift($this->innerContent, $html);
 
-        foreach (\array_reverse($tagClosers) as $tagName) {
+        foreach (\array_reverse($open) as $tagName) {
             $this->innerContent[] = \sprintf('</%s>', $tagName);
         }
 
@@ -613,14 +715,14 @@ final class BlockNode implements Stringable
      */
     public function __toString(): string
     {
-        if ($this->isRoot()) {
-            return \implode('', \array_map(static fn (BlockNode $block): string => (string) $block, $this->innerBlocks));
-        }
-
         $content = '';
         $index = 0;
         foreach ($this->innerContent as $chunk) {
             $content .= $chunk ?? (string) $this->innerBlocks[$index++];
+        }
+
+        if ($this->isRoot()) {
+            return $content;
         }
 
         if ($this->attrs !== [] && \serialize_block_attributes($this->attrs) === '') {
@@ -666,14 +768,10 @@ final class BlockNode implements Stringable
     private function toNodes(array $blocks): array
     {
         return \array_values(\array_map(
-            fn (array|BlockNode $block): BlockNode => $block instanceof BlockNode ? $block : self::create($block, $this),
+            static fn (array|BlockNode $block): BlockNode => $block instanceof BlockNode ? $block : self::create($block),
             $blocks
         ));
     }
-
-    /**
-     * @throws LogicException When the node is this node or one of its ancestors.
-     */
 
     /**
      * @throws InvalidArgumentException When the name would not survive a serialize and reparse.
@@ -707,10 +805,11 @@ final class BlockNode implements Stringable
         }
     }
 
+    /**
+     * Callers check `assertAdoptable()` first, before changing anything.
+     */
     private function adopt(BlockNode $node): BlockNode
     {
-        $this->assertAdoptable($node);
-
         // A block belongs to one parent, so attaching it here takes it away from its former one.
         // Without this, moving a block would silently duplicate it: it would stay in its former
         // parent's children while its own pointer names the new one.
@@ -755,20 +854,176 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Forgets the parent of a node that no longer appears among the children.
+     * Rejects a list holding the same node twice: it would serialize twice and share every change.
+     *
+     * @param list<BlockNode> $nodes
+     *
+     * @throws LogicException
+     */
+    private function assertDistinct(array $nodes): void
+    {
+        $seen = [];
+        foreach ($nodes as $node) {
+            $id = \spl_object_id($node);
+            if (isset($seen[$id])) {
+                throw new LogicException(\sprintf(
+                    'Cannot add block "%s" to "%s" twice: a block appears at most once in the tree.',
+                    $node->getBlockName() ?? '(freeform)',
+                    $this->getBlockName() ?? '(freeform)',
+                ));
+            }
+            $seen[$id] = true;
+        }
+    }
+
+    /**
+     * Puts the given nodes in place of the child at the given index, in both lists.
+     *
+     * @param list<BlockNode> $replacements
+     */
+    private function spliceChild(int $index, array $replacements): void
+    {
+        if (\count($replacements) === 1) {
+            // A swap leaves the placeholder where it is, and overwriting an existing index keeps a list.
+            $innerBlocks = $this->innerBlocks;
+            $innerBlocks[$index] = $replacements[0];
+            /** @var list<BlockNode> $innerBlocks */
+            $this->innerBlocks = $innerBlocks;
+
+            return;
+        }
+
+        $position = $this->placeholderPosition($index);
+        \array_splice($this->innerBlocks, $index, 1, $replacements);
+
+        if ($replacements === []) {
+            $this->removePlaceholderAt($position);
+
+            return;
+        }
+
+        \array_splice($this->innerContent, $position, 1, $this->placeholderRun(\count($replacements), false, false));
+    }
+
+    /**
+     * Checks a batch for `replaceInnerBlocksAt()` before anything changes.
+     *
+     * @param array<int, list<BlockNode>> $replacements
+     * @return list<BlockNode> Every replacement node.
+     *
+     * @throws OutOfRangeException|LogicException
+     */
+    private function assertReplacements(array $replacements): array
+    {
+        $count = \count($this->innerBlocks);
+        $adopted = [];
+        foreach ($replacements as $index => $nodes) {
+            if ($index < 0 || $index >= $count) {
+                throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1));
+            }
+
+            foreach ($nodes as $node) {
+                if ($node->parent === $this && $node !== $this->innerBlocks[$index]) {
+                    throw new LogicException(\sprintf(
+                        'Cannot replace child %d of "%s" by one of its siblings, use replaceInnerBlockAt() to move a child.',
+                        $index,
+                        $this->getBlockName() ?? '(freeform)',
+                    ));
+                }
+                $this->assertAdoptable($node);
+                $adopted[] = $node;
+            }
+        }
+        $this->assertDistinct($adopted);
+
+        return $adopted;
+    }
+
+    /**
+     * The content once the given replacements are applied.
+     *
+     * Walked from the end so that, as when replacing one by one from the highest index,
+     * everything on the right is already final when a placeholder is removed, and everything
+     * on the left is untouched.
+     *
+     * @param array<int, list<BlockNode>> $replacements
+     * @return list<string|null>
+     */
+    private function replacedContent(array $replacements): array
+    {
+        $reversed = [];
+        $child = \count($this->innerBlocks);
+        for ($position = \count($this->innerContent) - 1; $position >= 0; $position--) {
+            $chunk = $this->innerContent[$position];
+            if ($chunk !== null || !\array_key_exists(--$child, $replacements)) {
+                $reversed[] = $chunk;
+                continue;
+            }
+
+            if ($replacements[$child] !== []) {
+                \array_push($reversed, ...\array_reverse($this->placeholderRun(\count($replacements[$child]), false, false)));
+                continue;
+            }
+
+            // Removal: drop the separator that joined the placeholder to a sibling, as removePlaceholderAt() does.
+            $top = \count($reversed) - 1;
+            if ($top >= 1 && $this->isSeparator($reversed[$top]) && $reversed[$top - 1] === null) {
+                \array_pop($reversed);
+                continue;
+            }
+            if ($position >= 2 && $this->isSeparator($this->innerContent[$position - 1]) && $this->innerContent[$position - 2] === null) {
+                $position--;
+            }
+        }
+
+        return \array_reverse($reversed);
+    }
+
+    /**
+     * Takes out the given nodes that are already children of this node, so that adding them
+     * back moves them instead of listing them twice.
+     *
+     * @param list<BlockNode> $nodes
+     * @param BlockNode|null $kept The child being replaced, which stays where it is.
+     * @return int The index, shifted by the children taken out before it.
+     */
+    private function removeOwnChildren(array $nodes, int $index, ?BlockNode $kept = null): int
+    {
+        foreach ($nodes as $node) {
+            if ($node === $kept || $node->parent !== $this) {
+                continue;
+            }
+
+            $from = $this->indexOf($node);
+            if ($from === null) {
+                continue;
+            }
+
+            $this->removeInnerBlockAt($from);
+            if ($from < $index) {
+                $index--;
+            }
+        }
+
+        return $index;
+    }
+
+    /**
+     * Forgets the parent of a node that was taken out of the children.
+     *
+     * A node is listed once at most, so it is enough to check that it still points here: a
+     * child handed to `wrap()` points to its wrapper and must keep it.
      */
     private function detach(BlockNode $node): void
     {
-        if ($node->parent === $this && !\in_array($node, $this->innerBlocks, true)) {
+        if ($node->parent === $this) {
             $node->parent = null;
         }
     }
 
     /**
      * Position in `innerContent` of the placeholder of the child at the given index.
-     */
-
-    /**
+     *
      * @param int|null $total Number of placeholders, when it is not yet the number of children.
      */
     private function placeholderPosition(int $index, ?int $total = null): int
@@ -799,15 +1054,16 @@ final class BlockNode implements Stringable
     /**
      * Where placeholders go in a node without children.
      *
-     * A container the parser left empty keeps its opening and closing markup in a single chunk,
-     * so the chunk is split before its last closing tag; otherwise the children would serialize
-     * after the wrapper instead of inside it.
+     * A container the parser left empty keeps its opening and closing markup in a single chunk.
+     * When inserting children, `$split` cuts that chunk before its last closing tag; otherwise
+     * the children would serialize after the wrapper instead of inside it. Content set by hand
+     * is taken as given and not split.
      */
-    private function emptyContainerPosition(): int
+    private function emptyContainerPosition(bool $split): int
     {
         $count = \count($this->innerContent);
 
-        if ($count === 1) {
+        if ($split && $count === 1) {
             $chunk = (string) $this->innerContent[0];
             $position = $this->lastClosingTagPosition($chunk);
             if ($position !== null && $position > 0) {
@@ -828,21 +1084,28 @@ final class BlockNode implements Stringable
      */
     private function lastClosingTagPosition(string $html): ?int
     {
-        $processor = new WP_HTML_Tag_Processor($html);
-        $tagName = null;
+        // The processor knows where each tag starts but only exposes it through a bookmark, which
+        // subclasses can read. Searching the text instead would also match inside comments.
+        $processor = new class ($html) extends WP_HTML_Tag_Processor {
+            public function tokenOffset(): ?int
+            {
+                return $this->set_bookmark('token') ? $this->bookmarks['token']->start : null;
+            }
+        };
+
+        $position = null;
         while ($processor->next_tag(['tag_closers' => 'visit'])) {
             if ($processor->is_tag_closer()) {
-                $tagName = \strtolower((string) $processor->get_tag());
+                $position = $processor->tokenOffset();
             }
         }
 
-        if ($tagName === null) {
-            return null;
-        }
+        return $position;
+    }
 
-        $position = \strripos($html, '</' . $tagName);
-
-        return $position === false ? null : $position;
+    private function isSeparator(?string $chunk): bool
+    {
+        return \is_string($chunk) && \trim($chunk) === '';
     }
 
     /**
@@ -881,8 +1144,7 @@ final class BlockNode implements Stringable
         $left = $position > 0 ? $this->innerContent[$position - 1] : null;
 
         if (
-            \is_string($right)
-            && \trim($right) === ''
+            $this->isSeparator($right)
             && \array_key_exists($position + 1, $this->innerContent)
             && $this->innerContent[$position + 1] === null
         ) {
@@ -893,8 +1155,7 @@ final class BlockNode implements Stringable
 
         if (
             $position >= 2
-            && \is_string($left)
-            && \trim($left) === ''
+            && $this->isSeparator($left)
             && $this->innerContent[$position - 2] === null
         ) {
             \array_splice($this->innerContent, $position - 1, 1);
@@ -924,7 +1185,7 @@ final class BlockNode implements Stringable
 
         $missing = $blocks - $placeholders;
         if ($placeholders === 0) {
-            \array_splice($this->innerContent, $this->emptyContainerPosition(), 0, $this->placeholderRun($missing, false, false));
+            \array_splice($this->innerContent, $this->emptyContainerPosition(false), 0, $this->placeholderRun($missing, false, false));
 
             return;
         }

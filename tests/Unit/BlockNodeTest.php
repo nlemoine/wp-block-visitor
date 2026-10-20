@@ -202,14 +202,14 @@ final class BlockNodeTest extends TestCase
         $this->assertSame('Click me', $node->getAttribute('text'));
     }
 
-    public function testStaticCreateWithParent(): void
+    public function testStaticCreateHasNoParentUntilAttached(): void
     {
         $parent = new BlockNode('core/buttons');
-        $blockData = [
-            'blockName' => 'core/button',
-        ];
+        $node = BlockNode::create(['blockName' => 'core/button']);
 
-        $node = BlockNode::create($blockData, $parent);
+        $this->assertNull($node->getParent());
+
+        $parent->appendInnerBlock($node);
 
         $this->assertSame($parent, $node->getParent());
         $this->assertSame(1, $node->getDepth());
@@ -873,19 +873,14 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<figure><img class="cover" src="b.jpg"><br>', '<img src="a.jpg">', '</figure>'], $node->getInnerContent());
     }
 
-    public function testRemovingOneSlotOfAnAliasedChildKeepsItsParent(): void
+    public function testTheSameChildCannotBeListedTwice(): void
     {
         $twice = new BlockNode('core/paragraph');
-        $group = new BlockNode('core/group', [], [$twice, $twice], '', ['<div>', null, null, '</div>']);
 
-        $group->removeInnerBlockAt(0);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('twice');
 
-        $this->assertSame([$twice], $group->getInnerBlocks());
-        $this->assertSame($group, $twice->getParent());
-
-        $group->removeInnerBlockAt(0);
-
-        $this->assertNull($twice->getParent());
+        new BlockNode('core/group', [], [$twice, $twice], '', ['<div>', null, null, '</div>']);
     }
 
     public function testSetInnerBlocksWithTheSameCountKeepsTheContentBetweenChildren(): void
@@ -1079,6 +1074,8 @@ final class BlockNodeTest extends TestCase
         yield ['<script>'];
         yield [''];
         yield ['core/paragraph/extra'];
+        yield ["core/paragraph\n"];
+        yield ['@root'];
     }
 
     #[DataProvider('validBlockNameProvider')]
@@ -1097,6 +1094,7 @@ final class BlockNodeTest extends TestCase
         yield ['vendor/my-block'];
         yield ['para--graph'];
         yield ['a/b'];
+        yield ['my_plugin/my_block'];
     }
 
     public function testAFreeformNodeKeepsItsNullName(): void
@@ -1219,6 +1217,234 @@ final class BlockNodeTest extends TestCase
         $node->appendInnerBlock(new BlockNode('core/paragraph'));
 
         $this->assertSame(['</div>', null], $node->getInnerContent());
+    }
+
+    public function testABlockNameWithAnUnderscoreLoadsAsTheParserReadsIt(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:my_plugin/my_block /-->');
+
+        $this->assertSame('my_plugin/my_block', $root->getInnerBlocks()[0]->getBlockName());
+        $this->assertSame('<!-- wp:my_plugin/my_block /-->', (string) $root);
+    }
+
+    public function testTheConstructorRejectsAttributesGivenAsAList(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        BlockNode::create(['blockName' => 'core/paragraph', 'attrs' => ['x'], 'innerContent' => ['<p>1</p>']]);
+    }
+
+    public function testInsertingAChildIntoItsOwnParentMovesIt(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b'), new BlockNode('core/c')]);
+        [$a, $b, $c] = $node->getInnerBlocks();
+
+        $node->insertInnerBlockAt(0, $c);
+
+        $this->assertSame([$c, $a, $b], $node->getInnerBlocks());
+        $this->assertSame($node, $c->getParent());
+        $this->assertSame([null, "\n\n", null, "\n\n", null], $node->getInnerContent());
+    }
+
+    public function testInsertingAChildBackAtItsOwnPlaceKeepsTheContent(): void
+    {
+        $group = $this->group();
+        $before = $group->getInnerContent();
+        [$a, $b] = $group->getInnerBlocks();
+
+        $group->insertInnerBlockAt(1, $b);
+
+        $this->assertSame([$a, $b], $group->getInnerBlocks());
+        $this->assertSame($before, $group->getInnerContent());
+    }
+
+    public function testReplacingAChildBySiblingMovesTheSibling(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b'), new BlockNode('core/c')]);
+        [$a, $b, $c] = $node->getInnerBlocks();
+
+        $node->replaceInnerBlockAt(2, $a);
+
+        $this->assertSame([$b, $a], $node->getInnerBlocks());
+        $this->assertNull($c->getParent());
+        $this->assertSame($node, $a->getParent());
+    }
+
+    public function testTheSameNodeCannotBeInsertedTwiceAtOnce(): void
+    {
+        $node = new BlockNode('core/group');
+        $child = new BlockNode('core/a');
+
+        $this->expectException(LogicException::class);
+
+        $node->insertInnerBlockAt(0, $child, $child);
+    }
+
+    public function testSetInnerContentWithAStringPutsTheChildrenAfterIt(): void
+    {
+        $group = $this->group();
+
+        $group->setInnerContent('<p class="intro">Intro</p>');
+
+        $this->assertSame(['<p class="intro">Intro</p>', null, "\n\n", null], $group->getInnerContent());
+    }
+
+    public function testTheConstructorDoesNotSplitHandWrittenContent(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], '', ['<div>Hello</div>']);
+
+        $this->assertSame(['<div>Hello</div>', null], $node->getInnerContent());
+    }
+
+    public function testWrapInnerContentOnlyClosesTheElementsLeftOpen(): void
+    {
+        $node = new BlockNode('core/paragraph', [], [], '', ['<p>x</p>']);
+
+        $node->wrapInnerContent('<div class="a"><span class="icon"></span><svg viewBox="0 0 1 1"/><em><b>');
+
+        $this->assertSame(['<div class="a"><span class="icon"></span><svg viewBox="0 0 1 1"/><em><b>', '<p>x</p>', '</b>', '</em>', '</div>'], $node->getInnerContent());
+    }
+
+    public function testWrapInnerContentTreatsACloserAsClosingTheElementsInsideIt(): void
+    {
+        $node = new BlockNode('core/paragraph', [], [], '', ['<p>x</p>']);
+
+        $node->wrapInnerContent('<div><section><span></section>');
+
+        $this->assertSame(['<div><section><span></section>', '<p>x</p>', '</div>'], $node->getInnerContent());
+    }
+
+    public function testInsertingIntoAnEmptyContainerIgnoresAClosingTagInsideAComment(): void
+    {
+        $group = BlockNode::createFromString('<!-- wp:group --><div class="wp-block-group"></div><!-- </div> --><!-- /wp:group -->');
+
+        $group->appendInnerBlock(new BlockNode('core/paragraph'));
+
+        $this->assertSame(['<div class="wp-block-group">', null, '</div><!-- </div> -->'], $group->getInnerContent());
+    }
+
+    public function testExpandingATopLevelBlockSeparatesTheSiblings(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->');
+        $a = $root->getInnerBlocks()[0];
+
+        $root->replaceInnerBlockAt(0, $a, BlockNode::createFromString('<!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->'));
+
+        $this->assertSame("<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->\n\n<!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->", (string) $root);
+    }
+
+    public function testARootSerializesBackByteForByte(): void
+    {
+        $html = "<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->\n\n<!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->\n";
+
+        $this->assertSame($html, (string) BlockNode::createRoot($html));
+    }
+
+    public function testAnyChildChangeBumpsTheRevision(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
+        $revisions = [$node->getChildrenRevision()];
+
+        $node->appendInnerBlock(new BlockNode('core/b'));
+        $revisions[] = $node->getChildrenRevision();
+        $node->replaceInnerBlockAt(0, new BlockNode('core/c'));
+        $revisions[] = $node->getChildrenRevision();
+        $node->removeInnerBlockAt(0);
+        $revisions[] = $node->getChildrenRevision();
+        $node->setInnerBlocks([new BlockNode('core/d')]);
+        $revisions[] = $node->getChildrenRevision();
+        $node->replaceInnerBlocksAt([0 => []]);
+        $revisions[] = $node->getChildrenRevision();
+
+        $this->assertSame($revisions, \array_values(\array_unique($revisions)));
+        $node->setAttribute('x', 1)->setInnerContent('<div></div>');
+        $this->assertSame(\end($revisions), $node->getChildrenRevision(), 'attributes and content are not children');
+    }
+
+    /**
+     * @param array<int, int> $plan Index of the child => how many nodes replace it.
+     * @param list<string|null> $content
+     */
+    #[DataProvider('batchReplacementProvider')]
+    public function testBatchReplacementMatchesOneByOneReplacement(array $content, array $plan): void
+    {
+        $build = static function () use ($content): BlockNode {
+            $children = \array_map(
+                static fn (int $i): BlockNode => new BlockNode('core/c' . $i),
+                \array_keys(\array_keys($content, null, true))
+            );
+
+            return new BlockNode('core/group', [], $children, '', $content);
+        };
+        $replacementsFor = static function (BlockNode $node) use ($plan): array {
+            $replacements = [];
+            foreach ($plan as $index => $count) {
+                $replacements[$index] = [];
+                for ($i = 0; $i < $count; $i++) {
+                    $replacements[$index][] = $i === 0 && $count > 1 ? $node->getInnerBlocks()[$index] : new BlockNode('core/new');
+                }
+            }
+
+            return $replacements;
+        };
+
+        $oneByOne = $build();
+        $replacements = $replacementsFor($oneByOne);
+        \krsort($replacements);
+        foreach ($replacements as $index => $nodes) {
+            $oneByOne->replaceInnerBlockAt($index, ...$nodes);
+        }
+
+        $batch = $build();
+        $batch->replaceInnerBlocksAt($replacementsFor($batch));
+
+        $this->assertSame($oneByOne->getInnerContent(), $batch->getInnerContent());
+        $this->assertSame($this->names($oneByOne), $this->names($batch));
+    }
+
+    /**
+     * @return \Iterator<string, array{list<string|null>, array<int, int>}>
+     */
+    public static function batchReplacementProvider(): \Iterator
+    {
+        $separated = ['<div>', null, "\n\n", null, "\n\n", null, "\n\n", null, '</div>'];
+        $tight = ['<div>', null, null, '<hr>', null, ' ', null];
+
+        yield 'remove all' => [$separated, [0 => 0, 1 => 0, 2 => 0, 3 => 0]];
+        yield 'remove every other' => [$separated, [0 => 0, 2 => 0]];
+        yield 'remove the last two' => [$separated, [2 => 0, 3 => 0]];
+        yield 'remove next to an expansion' => [$separated, [1 => 0, 2 => 3]];
+        yield 'expand then remove' => [$separated, [1 => 2, 2 => 0]];
+        yield 'swap and remove' => [$separated, [0 => 1, 3 => 0]];
+        yield 'tight remove all' => [$tight, [0 => 0, 1 => 0, 2 => 0, 3 => 0]];
+        yield 'tight remove around markup' => [$tight, [1 => 0, 2 => 0]];
+        yield 'tight expand' => [$tight, [3 => 2, 0 => 0]];
+    }
+
+    public function testBatchReplacementRejectsASibling(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')]);
+
+        $this->expectException(LogicException::class);
+
+        $node->replaceInnerBlocksAt([0 => [$node->getInnerBlocks()[1]]]);
+    }
+
+    public function testRemovingEveryChildOfAWideParentStaysLinear(): void
+    {
+        $build = static fn (int $count): BlockNode => new BlockNode('core/group', [], \array_map(static fn (): BlockNode => new BlockNode('core/a'), \range(1, $count)));
+        $time = static function (BlockNode $node): float {
+            $start = \hrtime(true);
+            $node->replaceInnerBlocksAt(\array_fill(0, \count($node->getInnerBlocks()), []));
+
+            return (float) (\hrtime(true) - $start);
+        };
+
+        $small = $time($build(5000));
+        $large = $time($build(20000));
+
+        // Quadratic would be 16x; leave room for noise.
+        $this->assertLessThan(8 * $small, $large);
     }
 
     // ------------------------------------------------------------------
