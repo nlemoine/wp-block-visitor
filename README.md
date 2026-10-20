@@ -222,12 +222,12 @@ Compared with `parse_blocks()` and WordPress 6.9's streaming `WP_Block_Processor
 
 | 2000 blocks | BlockTraverser | WP_Block_Processor | parse_blocks() |
 |---|---|---|---|
-| Read: collect attachment IDs | 21 ms, 15 MB | 19 ms, 8 MB | 15 ms, 14 MB |
-| Write: add a class to every image | 24 ms, 15 MB | 21 ms, 9 MB | 19 ms, 16 MB |
+| Read: collect attachment IDs | 15 ms, 15 MB | 13 ms, 8 MB | 10 ms, 14 MB |
+| Write: add a class to every image | 17 ms, 15 MB | 17 ms, 9 MB | 13 ms, 16 MB |
 
-Memory is the process peak, 7 MB of which is PHP itself. Of the 21 ms, 12.6 ms are `parse_blocks()`.
+Memory is the process peak, 7 MB of which is PHP itself. Of the 15 ms of the read, 8.4 ms are `parse_blocks()`, 2.8 ms build the tree and 2.2 ms visit its 3939 nodes, freeform whitespace blocks included.
 
-**What you pay**: a block tree in memory, about the size of the `parse_blocks()` array, and 10 to 45 percent more time than the raw alternatives for building the nodes and dispatching the visitor.
+**What you pay**: a block tree in memory, about the size of the `parse_blocks()` array, and, to read, about 10 percent more time than `WP_Block_Processor` and 45 percent more than `parse_blocks()`, for building the nodes and dispatching the visitor. To write, it costs the same as `WP_Block_Processor` and 35 percent more than `parse_blocks()`, since serializing straight from the nodes makes up for building them.
 
 **What you get**: children can be inserted, removed, replaced or wrapped and `innerContent` stays consistent; untouched blocks serialize byte for byte; visitors compose in passes. `WP_Block_Processor` reads without building anything and is the right tool for scanning, but a modification is a span you splice into the source yourself. `parse_blocks()` gives you the tree and leaves the bookkeeping to you.
 
