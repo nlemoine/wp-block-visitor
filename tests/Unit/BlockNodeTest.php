@@ -1362,25 +1362,46 @@ final class BlockNodeTest extends TestCase
         $this->assertSame($html, (string) BlockNode::createRoot($html));
     }
 
-    public function testAnyChildChangeBumpsTheRevision(): void
+    public function testALockedNodeRejectsEveryChildChangeButNotItsContent(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')], ['<div>', null, '</div>']);
+        $node->lockChildren();
+
+        $attempts = [
+            'append' => static fn (): BlockNode => $node->appendInnerBlock(new BlockNode('core/b')),
+            'replace' => static fn (): BlockNode => $node->replaceInnerBlockAt(0, new BlockNode('core/b')),
+            'remove' => static fn (): BlockNode => $node->removeInnerBlockAt(0),
+            'set' => static fn (): BlockNode => $node->setInnerBlocks([]),
+            'apply' => static fn (): BlockNode => $node->applyReplacements([0 => []]),
+            'steal' => static fn (): BlockNode => new BlockNode('core/x', [], [$node->getInnerBlocks()[0]]),
+        ];
+        foreach ($attempts as $name => $attempt) {
+            try {
+                $attempt();
+                $this->fail($name . ' should be rejected');
+            } catch (LogicException $exception) {
+                $this->assertStringContainsString('Cannot change the children of "core/group"', $exception->getMessage(), $name);
+            }
+        }
+
+        $node->setAttribute('x', 1)->wrapInnerContent('<section>')->setInnerContent(['<p>', null, '</p>']);
+        $this->assertCount(1, $node->getInnerBlocks());
+
+        $node->unlockChildren();
+        $node->removeInnerBlockAt(0);
+        $this->assertSame([], $node->getInnerBlocks());
+    }
+
+    public function testLocksNest(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
-        $revisions = [$node->getChildrenRevision()];
+        $node->lockChildren();
+        $node->lockChildren();
+        $node->unlockChildren();
 
-        $node->appendInnerBlock(new BlockNode('core/b'));
-        $revisions[] = $node->getChildrenRevision();
-        $node->replaceInnerBlockAt(0, new BlockNode('core/c'));
-        $revisions[] = $node->getChildrenRevision();
+        $this->expectException(LogicException::class);
+
         $node->removeInnerBlockAt(0);
-        $revisions[] = $node->getChildrenRevision();
-        $node->setInnerBlocks([new BlockNode('core/d')]);
-        $revisions[] = $node->getChildrenRevision();
-        $node->applyReplacements([0 => []]);
-        $revisions[] = $node->getChildrenRevision();
-
-        $this->assertSame($revisions, \array_values(\array_unique($revisions)));
-        $node->setAttribute('x', 1)->setInnerContent('<div></div>');
-        $this->assertSame(\end($revisions), $node->getChildrenRevision(), 'attributes and content are not children');
     }
 
     /**

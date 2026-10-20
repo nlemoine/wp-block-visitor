@@ -56,56 +56,65 @@ final readonly class BlockTraverser
     }
 
     /**
+     * Visits the children of the parent with its children list locked, so that a hook changing
+     * it, or the list of any other ancestor, fails at its own call instead of shifting the
+     * indexes of the pass. What `leave()` returned is applied once the lock is released.
+     *
      * @return bool Whether the visitor asked to stop.
      */
     private function traverseChildren(BlockNode $parent, BlockVisitorInterface $visitor): bool
     {
-        $stopped = false;
-
         /** @var array<int, list<BlockNode>> $replacements */
         $replacements = [];
 
+        $parent->lockChildren();
+        try {
+            $stopped = $this->visitChildren($parent, $visitor, $replacements);
+        } finally {
+            $parent->unlockChildren();
+        }
+
+        $parent->applyReplacements($replacements);
+
+        return $stopped;
+    }
+
+    /**
+     * @param array<int, list<BlockNode>> $replacements Filled with what `leave()` returned, by index.
+     * @return bool Whether the visitor asked to stop.
+     */
+    private function visitChildren(BlockNode $parent, BlockVisitorInterface $visitor, array &$replacements): bool
+    {
         foreach ($parent->getInnerBlocks() as $index => $child) {
-            $revision = $parent->getChildrenRevision();
             $result = $visitor->enter($child);
 
             if ($result === Traversal::Stop) {
-                $stopped = true;
-                break;
+                return true;
             }
 
             if ($result === Traversal::Remove) {
                 throw new LogicException('enter() cannot return Traversal::Remove, remove nodes from leave().');
             }
 
-            $this->assertUntouched($parent, $revision, $index, $child);
             if ($result instanceof BlockNode && $result !== $child) {
                 $this->assertNotSibling($parent, $result, 'enter');
-                $parent->replaceInnerBlockAt($index, $result);
+                $this->replaceUnlocked($parent, $index, $result);
                 $child = $result;
-                $revision = $parent->getChildrenRevision();
             }
 
-            if ($result !== Traversal::SkipChildren) {
-                $stopped = $this->traverseChildren($child, $visitor);
-                $this->assertUntouched($parent, $revision, $index, $child);
-                if ($stopped) {
-                    break;
-                }
+            if ($result !== Traversal::SkipChildren && $this->traverseChildren($child, $visitor)) {
+                return true;
             }
 
             $result = $visitor->leave($child);
 
             if ($result === Traversal::Stop) {
-                $stopped = true;
-                break;
+                return true;
             }
 
             if ($result === Traversal::SkipChildren) {
                 throw new LogicException('leave() cannot return Traversal::SkipChildren, the children have already been visited.');
             }
-
-            $this->assertUntouched($parent, $revision, $index, $child);
 
             if ($result === Traversal::Remove) {
                 $replacements[$index] = [];
@@ -117,29 +126,21 @@ final readonly class BlockTraverser
             }
         }
 
-        $parent->applyReplacements($replacements);
-
-        return $stopped;
+        return false;
     }
 
     /**
-     * Rejects a hook that changed the children of the parent, which would make the indexes of the
-     * pass point at the wrong nodes. Checked in O(1) through the parent's revision counter.
-     *
-     * @throws LogicException
+     * Applies what `enter()` returned right away, since its children are visited next. Only this
+     * one lock is lifted: if the parent is also locked by an outer pass, the change still fails.
      */
-    private function assertUntouched(BlockNode $parent, int $revision, int $index, BlockNode $child): void
+    private function replaceUnlocked(BlockNode $parent, int $index, BlockNode $node): void
     {
-        if ($parent->getChildrenRevision() === $revision) {
-            return;
+        $parent->unlockChildren();
+        try {
+            $parent->replaceInnerBlockAt($index, $node);
+        } finally {
+            $parent->lockChildren();
         }
-
-        throw new LogicException(\sprintf(
-            'The children of "%s" changed while visiting its child %d "%s". Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
-            $parent->getBlockName() ?? '(freeform)',
-            $index,
-            $child->getBlockName() ?? '(freeform)',
-        ));
     }
 
     /**

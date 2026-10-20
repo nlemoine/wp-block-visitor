@@ -486,7 +486,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('The children of "core/group" changed');
+        $this->expectExceptionMessage('Cannot change the children of "core/group"');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -598,7 +598,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('The children of "core/group" changed');
+        $this->expectExceptionMessage('Cannot change the children of "core/group"');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -633,7 +633,7 @@ HTML
         );
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('The children of "core/group" changed');
+        $this->expectExceptionMessage('Cannot change the children of "core/group"');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }
@@ -758,6 +758,95 @@ HTML
 
         // Quadratic would be 16x; leave room for noise.
         $this->assertLessThan(8 * $small, $large);
+    }
+
+    public function testAnAncestorChangeFailsInsideTheHookThatMakesIt(): void
+    {
+        $reachedAfterTheCall = false;
+        $visitor = $this->logger(enter: static function (BlockNode $block) use (&$reachedAfterTheCall): null {
+            if ($block->getBlockName() === 'core/paragraph') {
+                $block->getParent()?->removeInnerBlockAt(0);
+                $reachedAfterTheCall = true;
+            }
+
+            return null;
+        });
+
+        try {
+            (new BlockTraverser($visitor))->traverse(self::GROUP);
+            $this->fail('The change to the parent should be rejected');
+        } catch (LogicException) {
+        }
+
+        $this->assertFalse($reachedAfterTheCall);
+    }
+
+    public function testTakingASiblingIntoANewNodeIsRejected(): void
+    {
+        $visitor = $this->logger(leave: static function (BlockNode $block): ?BlockNode {
+            $parent = $block->getParent();
+            if (!$parent instanceof BlockNode || !\str_contains($block->getInnerHTML(), '<p>A</p>')) {
+                return null;
+            }
+
+            return new BlockNode('core/group', [], [$parent->getInnerBlocks()[1]]);
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Cannot change the children of "core/group"');
+
+        (new BlockTraverser($visitor))->traverse(self::GROUP);
+    }
+
+    public function testTheTreeIsUnlockedAfterAVisitorThrows(): void
+    {
+        $visitor = $this->logger(enter: static function (): never {
+            throw new RuntimeException('boom');
+        });
+        $root = BlockNode::createRoot(self::GROUP);
+
+        try {
+            (new BlockTraverser($visitor))->traverse($root);
+        } catch (RuntimeException) {
+        }
+
+        $root->appendInnerBlock(new BlockNode('core/late'));
+        $root->getInnerBlocks()[0]->removeInnerBlockAt(0);
+        $this->assertCount(2, $root->getInnerBlocks());
+    }
+
+    public function testANestedTraversalOfAnAncestorCannotChangeIt(): void
+    {
+        $inner = $this->logger(leave: static fn (BlockNode $block): ?Traversal => $block->getBlockName() === 'core/heading' ? Traversal::Remove : null);
+        $outer = $this->logger(enter: static function (BlockNode $block) use ($inner): null {
+            $root = $block->getParent();
+            if ($root?->isRoot() === true && $block->getBlockName() === 'core/group') {
+                (new BlockTraverser($inner))->traverse($root);
+            }
+
+            return null;
+        });
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Cannot change the children of "@root"');
+
+        (new BlockTraverser($outer))->traverse(self::TWO_TOP_LEVEL);
+    }
+
+    public function testANestedTraversalOfTheCurrentNodeCanChangeIt(): void
+    {
+        $inner = $this->logger(leave: static fn (BlockNode $block): ?Traversal => \str_contains($block->getInnerHTML(), '<p>A</p>') ? Traversal::Remove : null);
+        $outer = $this->logger(enter: static function (BlockNode $block) use ($inner): null {
+            if ($block->getBlockName() === 'core/group') {
+                (new BlockTraverser($inner))->traverse($block);
+            }
+
+            return null;
+        });
+
+        $root = (new BlockTraverser($outer))->traverse(self::GROUP);
+
+        $this->assertCount(1, $root->getInnerBlocks()[0]->getInnerBlocks());
     }
 
     // ------------------------------------------------------------------

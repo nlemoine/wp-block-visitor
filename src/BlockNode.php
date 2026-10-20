@@ -77,10 +77,11 @@ final class BlockNode implements Stringable
     private ?BlockNode $parent = null;
 
     /**
-     * Bumped by every change to the children list, so the traverser can tell in O(1)
-     * whether a hook touched it.
+     * How many traversals are visiting the children right now. While it is above zero, the
+     * children list cannot change, so a visitor touching an ancestor fails at its own call.
+     * A counter rather than a flag, so that nested traversals of the same node unlock in turn.
      */
-    private int $childrenRevision = 0;
+    private int $childrenLocks = 0;
 
     /**
      * A child that already has a parent is moved here, as with the child mutators.
@@ -282,13 +283,21 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Number of changes made to the children list so far.
+     * Forbids any change to the children list until the matching `unlockChildren()`.
      *
-     * @internal Lets the traverser tell whether a hook touched the children of an ancestor.
+     * @internal Called by the traverser around the visit of the children.
      */
-    public function getChildrenRevision(): int
+    public function lockChildren(): void
     {
-        return $this->childrenRevision;
+        $this->childrenLocks++;
+    }
+
+    /**
+     * @internal Called by the traverser once the children have been visited.
+     */
+    public function unlockChildren(): void
+    {
+        $this->childrenLocks--;
     }
 
     /**
@@ -300,6 +309,7 @@ final class BlockNode implements Stringable
      */
     public function replaceInnerBlockAt(int $index, BlockNode ...$replacements): self
     {
+        $this->assertUnlocked();
         $count = \count($this->innerBlocks);
         if ($index < 0 || $index >= $count) {
             throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1));
@@ -314,7 +324,6 @@ final class BlockNode implements Stringable
         $old = $this->innerBlocks[$index];
         $index = $this->removeOwnChildren($replacements, $index, $old);
         $this->spliceChild($index, $replacements);
-        $this->childrenRevision++;
 
         if (!\in_array($old, $replacements, true)) {
             $this->detach($old);
@@ -341,6 +350,7 @@ final class BlockNode implements Stringable
      */
     public function applyReplacements(array $replacements): self
     {
+        $this->assertUnlocked();
         if ($replacements === []) {
             return $this;
         }
@@ -361,7 +371,6 @@ final class BlockNode implements Stringable
                 $this->detach($node);
             }
         }
-        $this->childrenRevision++;
 
         foreach ($adopted as $node) {
             $this->adopt($node);
@@ -377,6 +386,7 @@ final class BlockNode implements Stringable
      */
     public function insertInnerBlockAt(int $index, BlockNode ...$nodes): self
     {
+        $this->assertUnlocked();
         $count = \count($this->innerBlocks);
         if ($index < 0 || $index > $count) {
             throw new OutOfRangeException(\sprintf('Cannot insert at index %d, valid indexes are 0 to %d.', $index, $count));
@@ -409,7 +419,6 @@ final class BlockNode implements Stringable
 
         \array_splice($this->innerContent, $position, 0, $run);
         \array_splice($this->innerBlocks, $index, 0, $nodes);
-        $this->childrenRevision++;
 
         foreach ($nodes as $node) {
             $this->adopt($node);
@@ -460,6 +469,7 @@ final class BlockNode implements Stringable
      */
     public function setInnerBlocks(array $innerBlocks): self
     {
+        $this->assertUnlocked();
         $new = $this->toNodes($innerBlocks);
         $this->assertDistinct($new);
         foreach ($new as $node) {
@@ -483,7 +493,6 @@ final class BlockNode implements Stringable
         }
 
         $this->innerBlocks = $new;
-        $this->childrenRevision++;
 
         $kept = [];
         foreach ($new as $node) {
@@ -874,6 +883,21 @@ final class BlockNode implements Stringable
                 $pending[] = $child;
             }
         }
+    }
+
+    /**
+     * @throws LogicException When a traversal is visiting the children.
+     */
+    private function assertUnlocked(): void
+    {
+        if ($this->childrenLocks === 0) {
+            return;
+        }
+
+        throw new LogicException(\sprintf(
+            'Cannot change the children of "%s" while a visitor is visiting them. Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
+            $this->getBlockName() ?? '(freeform)',
+        ));
     }
 
     /**

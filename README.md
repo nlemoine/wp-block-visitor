@@ -87,7 +87,7 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 
 `enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`. Since the children of a node returned from `enter()` are visited, returning `BlockNode::wrap($block, ...)` there visits `$block` again and wraps it forever: wrap from `leave()`.
 
-**Ancestors and siblings** are never mutated from a visitor. Every node counts the changes made to its children list, and after each hook the traverser checks that the parent's count has not moved, throwing a `LogicException` otherwise. That covers removals, insertions, swaps and reorderings anywhere in the list, from the current node's hooks or from its descendants'. Changing the attributes or the content of an ancestor does not touch its children and is not rejected. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
+**Ancestors and siblings** are never mutated from a visitor. While a node's children are visited, the traverser locks its children list: any call that would change it, including attaching one of those children somewhere else, throws a `LogicException` right where the visitor makes it. That covers removals, insertions, swaps and reorderings anywhere in the list, from the current node's hooks or from its descendants'. Changing the attributes or the content of an ancestor does not touch its children and is not rejected. To act on a parent based on what a child contains, record the fact in the visitor state during the child's visit and act in `leave()` of the parent.
 
 A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. All the values returned for one sibling list are applied in a single pass, so removing every child of a wide parent stays linear. Attaching a block somewhere takes it away from its former parent, and a block can never be added under itself or under one of its own descendants.
 
@@ -115,7 +115,7 @@ BlockNode::wrap($child, 'core/group', $attrs, $before, $after); // from leave(),
 new BlockNode('core/group', $attrs, $children, $innerContent);  // children that have a parent are moved here
 ```
 
-Members tagged `@internal` (`getChildrenRevision()`, `applyReplacements()`) are public only so the traverser can reach them. They are not part of the supported API and can change in any release.
+Members tagged `@internal` (`lockChildren()`, `unlockChildren()`, `applyReplacements()`) are public only so the traverser can reach them. They are not part of the supported API and can change in any release.
 
 ### Reading
 
