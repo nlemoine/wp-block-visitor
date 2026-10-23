@@ -1414,6 +1414,16 @@ final class BlockNodeTest extends TestCase
         $this->assertCount(1, $node->getInnerBlocks());
     }
 
+    public function testUnlockingChildrenThatAreNotLockedIsRejected(): void
+    {
+        $node = new BlockNode('core/group');
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('are not locked');
+
+        $node->unlockChildren();
+    }
+
     /**
      * @param array<int, int> $plan Index of the child => how many nodes replace it.
      * @param list<string|null> $content

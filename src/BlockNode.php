@@ -309,9 +309,20 @@ final class BlockNode implements Stringable
 
     /**
      * @internal Called by the traverser once the children have been visited.
+     *
+     * @throws LogicException When there is no lock to release, so a stray call cannot wedge the node.
      */
     public function unlockChildren(): void
     {
+        if ($this->childrenLocks === 0) {
+            // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+            throw new LogicException(\sprintf(
+                'Cannot unlock the children of "%s": they are not locked.',
+                $this->getBlockName() ?? '(freeform)',
+            ));
+            // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+        }
+
         $this->childrenLocks--;
     }
 
