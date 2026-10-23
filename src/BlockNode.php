@@ -1174,13 +1174,16 @@ final class BlockNode implements Stringable
             return $index;
         }
 
+        // The indexes come back in the coordinates of the list before the removal, so they are
+        // compared with the target as it was, not with the target being shifted.
+        $shifted = $index;
         foreach ($this->removeChildren($own) as $from) {
             if ($from < $index) {
-                $index--;
+                $shifted--;
             }
         }
 
-        return $index;
+        return $shifted;
     }
 
     /**

@@ -1831,6 +1831,35 @@ final class BlockNodeTest extends TestCase
         $this->assertCount(\count($root->getInnerBlocks()), \parse_blocks((string) $root), 'a reparse must give the same top-level blocks');
     }
 
+    #[DataProvider('ownChildrenMoveProvider')]
+    public function testMovingSeveralOwnChildrenKeepsTheOthersInOrder(Closure $move, string $expected): void
+    {
+        $list = new BlockNode('core/list', [], [
+            new BlockNode('core/list-item', ['n' => 1]),
+            new BlockNode('core/list-item', ['n' => 2]),
+            new BlockNode('core/list-item', ['n' => 3]),
+            new BlockNode('core/list-item', ['n' => 4]),
+        ]);
+
+        $move($list, ...$list->getInnerBlocks());
+
+        $this->assertSame($expected, \implode(',', \array_map(static fn (BlockNode $item): string => (string) $item->getAttribute('n'), $list->getInnerBlocks())));
+        foreach ($list->getInnerBlocks() as $item) {
+            $this->assertSame($list, $item->getParent());
+        }
+    }
+
+    /**
+     * @return \Iterator<string, array{Closure(BlockNode, BlockNode, BlockNode, BlockNode, BlockNode): mixed, string}>
+     */
+    public static function ownChildrenMoveProvider(): \Iterator
+    {
+        yield 'moving the last two to the end is a no-op' => [static fn (BlockNode $list, BlockNode $a, BlockNode $b, BlockNode $c, BlockNode $d): BlockNode => $list->insertInnerBlockAt(4, $c, $d), '1,2,3,4'];
+        yield 'appending the last two swapped' => [static fn (BlockNode $list, BlockNode $a, BlockNode $b, BlockNode $c, BlockNode $d): BlockNode => $list->appendInnerBlocks([$d, $c]), '1,2,4,3'];
+        yield 'inserting two own children before the last' => [static fn (BlockNode $list, BlockNode $a, BlockNode $b, BlockNode $c, BlockNode $d): BlockNode => $list->insertInnerBlockAt(3, $a, $c), '2,1,3,4'];
+        yield 'replacing a child by two earlier siblings' => [static fn (BlockNode $list, BlockNode $a, BlockNode $b, BlockNode $c, BlockNode $d): BlockNode => $list->replaceInnerBlockAt(2, $a, $b), '1,2,4'];
+    }
+
     public function testMovingManyChildrenToAnotherParentStaysLinear(): void
     {
         $from = $this->wideGroup(20000);
