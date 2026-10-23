@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor;
 
+use Closure;
 use n5s\BlockVisitor\Exception\LogicException;
 use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
 use n5s\BlockVisitor\Visitor\PrioritizedVisitorInterface;
@@ -25,9 +26,37 @@ final readonly class BlockTraverser
      */
     private array $visitors;
 
+    /**
+     * @var Closure(BlockNode): void
+     */
+    private Closure $lockChildren;
+
+    /**
+     * @var Closure(BlockNode): void
+     */
+    private Closure $unlockChildren;
+
+    /**
+     * @var Closure(BlockNode, array<int, list<BlockNode>>): void
+     */
+    private Closure $applyReplacements;
+
     public function __construct(BlockVisitorInterface ...$visitors)
     {
         $this->visitors = $this->sortByPriority(\array_values($visitors));
+
+        // The lock and the batch apply are reserved to the traverser. Bound to the scope of
+        // BlockNode, these closures reach its private methods without widening its public API.
+        $this->lockChildren = Closure::bind(static function (BlockNode $node): void {
+            $node->lockChildren();
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
+        $this->unlockChildren = Closure::bind(static function (BlockNode $node): void {
+            $node->unlockChildren();
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
+        $this->applyReplacements = Closure::bind(static function (BlockNode $node, array $replacements): void {
+            /** @var array<int, list<BlockNode>> $replacements */
+            $node->applyReplacements($replacements);
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
     }
 
     /**
@@ -70,14 +99,14 @@ final readonly class BlockTraverser
         /** @var array<int, list<BlockNode>> $replacements */
         $replacements = [];
 
-        $parent->lockChildren();
+        ($this->lockChildren)($parent);
         try {
             $stopped = $this->visitChildren($parent, $visitor, $replacements);
         } finally {
-            $parent->unlockChildren();
+            ($this->unlockChildren)($parent);
         }
 
-        $parent->applyReplacements($replacements);
+        ($this->applyReplacements)($parent, $replacements);
 
         return $stopped;
     }
@@ -138,11 +167,11 @@ final readonly class BlockTraverser
      */
     private function replaceUnlocked(BlockNode $parent, int $index, BlockNode $node): void
     {
-        $parent->unlockChildren();
+        ($this->unlockChildren)($parent);
         try {
             $parent->replaceInnerBlockAt($index, $node);
         } finally {
-            $parent->lockChildren();
+            ($this->lockChildren)($parent);
         }
     }
 

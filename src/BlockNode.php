@@ -305,19 +305,22 @@ final class BlockNode implements Stringable
     /**
      * Forbids any change to the children list until the matching `unlockChildren()`.
      *
-     * @internal Called by the traverser around the visit of the children.
+     * Reserved to the traverser, which calls it around the visit of the children through a
+     * closure bound to this class. Protected rather than private only so that static analysis
+     * does not take it for dead code; the class is final, so nothing else can reach it.
      */
-    public function lockChildren(): void
+    protected function lockChildren(): void
     {
         $this->childrenLocks++;
     }
 
     /**
-     * @internal Called by the traverser once the children have been visited.
+     * Reserved to the traverser, which calls it once the children have been visited; protected
+     * for the same reason as `lockChildren()`.
      *
      * @throws LogicException When there is no lock to release, so a stray call cannot wedge the node.
      */
-    public function unlockChildren(): void
+    protected function unlockChildren(): void
     {
         if ($this->childrenLocks === 0) {
             // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
@@ -371,13 +374,14 @@ final class BlockNode implements Stringable
      * index down, without its quadratic cost on a node with many children. Unlike it, a
      * replacement cannot be another child of this node.
      *
-     * @internal Used by the traverser to apply what `leave()` returned.
+     * Reserved to the traverser, which applies what `leave()` returned with it; protected for
+     * the same reason as `lockChildren()`.
      *
      * @param array<int, list<BlockNode>> $replacements Replacement nodes, keyed by the index of the child they replace.
      *
      * @throws LogicException When a replacement is another child of this node, or appears twice.
      */
-    public function applyReplacements(array $replacements): self
+    protected function applyReplacements(array $replacements): self
     {
         // Before the lock check: a nested pass over a locked ancestor has nothing to apply.
         if ($replacements === []) {

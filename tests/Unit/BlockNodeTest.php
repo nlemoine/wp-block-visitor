@@ -8,6 +8,7 @@ use Closure;
 use InvalidArgumentException;
 use LogicException;
 use n5s\BlockVisitor\BlockNode;
+use n5s\BlockVisitor\Tests\Support\Internals;
 use n5s\BlockVisitor\Tests\TestCase;
 use OutOfRangeException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -725,7 +726,7 @@ final class BlockNodeTest extends TestCase
     {
         $group = $this->group();
         $child = $group->getInnerBlocks()[0];
-        $group->lockChildren();
+        Internals::lockChildren($group);
 
         $wrapper = BlockNode::wrap($child, 'core/cover');
 
@@ -733,7 +734,7 @@ final class BlockNodeTest extends TestCase
         $this->assertSame($wrapper, $child->getParent());
         $this->assertSame(0, $group->indexOf($child), 'the child is still listed by its former parent until the traverser swaps it');
 
-        $group->unlockChildren();
+        Internals::unlockChildren($group);
         $group->replaceInnerBlockAt(0, $wrapper);
 
         $this->assertSame($group, $wrapper->getParent());
@@ -1497,14 +1498,14 @@ final class BlockNodeTest extends TestCase
     public function testALockedNodeRejectsEveryChildChangeButNotItsContent(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a')], ['<div>', null, '</div>']);
-        $node->lockChildren();
+        Internals::lockChildren($node);
 
         $attempts = [
             'append' => static fn (): BlockNode => $node->appendInnerBlock(new BlockNode('core/b')),
             'replace' => static fn (): BlockNode => $node->replaceInnerBlockAt(0, new BlockNode('core/b')),
             'remove' => static fn (): BlockNode => $node->removeInnerBlockAt(0),
             'set' => static fn (): BlockNode => $node->setInnerBlocks([]),
-            'apply' => static fn (): BlockNode => $node->applyReplacements([0 => []]),
+            'apply' => static fn (): BlockNode => Internals::applyReplacements($node, [0 => []]),
             'steal' => static fn (): BlockNode => new BlockNode('core/x', [], [$node->getInnerBlocks()[0]]),
         ];
         foreach ($attempts as $name => $attempt) {
@@ -1519,7 +1520,7 @@ final class BlockNodeTest extends TestCase
         $node->setAttribute('x', 1)->wrapInnerContent('<section>')->setInnerContent(['<p>', null, '</p>']);
         $this->assertCount(1, $node->getInnerBlocks());
 
-        $node->unlockChildren();
+        Internals::unlockChildren($node);
         $node->removeInnerBlockAt(0);
         $this->assertSame([], $node->getInnerBlocks());
     }
@@ -1527,9 +1528,9 @@ final class BlockNodeTest extends TestCase
     public function testLocksNest(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
-        $node->lockChildren();
-        $node->lockChildren();
-        $node->unlockChildren();
+        Internals::lockChildren($node);
+        Internals::lockChildren($node);
+        Internals::unlockChildren($node);
 
         $this->expectException(LogicException::class);
 
@@ -1539,11 +1540,18 @@ final class BlockNodeTest extends TestCase
     public function testALockedNodeAcceptsAnEmptyBatch(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
-        $node->lockChildren();
+        Internals::lockChildren($node);
 
-        $node->applyReplacements([])->appendInnerBlocks([])->prependInnerBlocks([]);
+        Internals::applyReplacements($node, [])->appendInnerBlocks([])->prependInnerBlocks([]);
 
         $this->assertCount(1, $node->getInnerBlocks());
+    }
+
+    public function testTheTraversalInternalsAreNotPartOfThePublicApi(): void
+    {
+        foreach (['lockChildren', 'unlockChildren', 'applyReplacements'] as $method) {
+            $this->assertFalse((new \ReflectionMethod(BlockNode::class, $method))->isPublic(), $method);
+        }
     }
 
     public function testUnlockingChildrenThatAreNotLockedIsRejected(): void
@@ -1553,7 +1561,7 @@ final class BlockNodeTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('are not locked');
 
-        $node->unlockChildren();
+        Internals::unlockChildren($node);
     }
 
     public function testARefusedCycleThroughAParsedArrayLeavesTheTreeUntouched(): void
@@ -1578,7 +1586,7 @@ final class BlockNodeTest extends TestCase
     {
         $free = new BlockNode('core/group', [], [new BlockNode('core/a')]);
         $locked = new BlockNode('core/group', [], [new BlockNode('core/b')]);
-        $locked->lockChildren();
+        Internals::lockChildren($locked);
 
         try {
             new BlockNode('core/cover', [], [$free->getInnerBlocks()[0], $locked->getInnerBlocks()[0]]);
@@ -1595,7 +1603,7 @@ final class BlockNodeTest extends TestCase
         $target = new BlockNode('core/group', [], [], ['<div></div>']);
         $free = new BlockNode('core/group', [], [new BlockNode('core/a')]);
         $locked = new BlockNode('core/group', [], [new BlockNode('core/b')]);
-        $locked->lockChildren();
+        Internals::lockChildren($locked);
 
         try {
             $target->appendInnerBlocks([
@@ -1647,7 +1655,7 @@ final class BlockNodeTest extends TestCase
         }
 
         $batch = $build();
-        $batch->applyReplacements($replacementsFor($batch));
+        Internals::applyReplacements($batch, $replacementsFor($batch));
 
         $this->assertSame($oneByOne->getInnerContent(), $batch->getInnerContent());
         $this->assertSame($this->names($oneByOne), $this->names($batch));
@@ -1684,7 +1692,7 @@ final class BlockNodeTest extends TestCase
 
         $this->expectException(LogicException::class);
 
-        $node->applyReplacements([0 => [$node->getInnerBlocks()[1]]]);
+        Internals::applyReplacements($node, [0 => [$node->getInnerBlocks()[1]]]);
     }
 
     public function testRemovingEveryChildOfAWideParentStaysLinear(): void
@@ -1692,7 +1700,7 @@ final class BlockNodeTest extends TestCase
         $build = static fn (int $count): BlockNode => new BlockNode('core/group', [], \array_map(static fn (): BlockNode => new BlockNode('core/a'), \range(1, $count)));
         $time = static function (BlockNode $node): float {
             $start = \hrtime(true);
-            $node->applyReplacements(\array_fill(0, \count($node->getInnerBlocks()), []));
+            Internals::applyReplacements($node, \array_fill(0, \count($node->getInnerBlocks()), []));
 
             return (float) (\hrtime(true) - $start);
         };
@@ -1761,12 +1769,12 @@ final class BlockNodeTest extends TestCase
     public function testACloneTakenDuringATraversalIsNotLocked(): void
     {
         $group = $this->group();
-        $group->lockChildren();
+        Internals::lockChildren($group);
 
         try {
             $copy = clone $group;
         } finally {
-            $group->unlockChildren();
+            Internals::unlockChildren($group);
         }
 
         $copy->appendInnerBlock(new BlockNode('core/separator'));
