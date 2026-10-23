@@ -115,9 +115,7 @@ final class BlockNode implements Stringable
             foreach ($given as $node) {
                 $this->assertAdoptable($node);
             }
-            foreach ($given as $node) {
-                $this->adopt($node);
-            }
+            $this->adoptAll($given);
         }
 
         $this->innerContent = Placeholders::reconcile($this->innerContent, \count($this->innerBlocks), $this->isRoot());
@@ -360,9 +358,7 @@ final class BlockNode implements Stringable
         if (!\in_array($old, $replacements, true)) {
             $this->detach($old);
         }
-        foreach ($replacements as $node) {
-            $this->adopt($node);
-        }
+        $this->adoptAll($replacements);
 
         return $this;
     }
@@ -406,9 +402,7 @@ final class BlockNode implements Stringable
             }
         }
 
-        foreach ($adopted as $node) {
-            $this->adopt($node);
-        }
+        $this->adoptAll($adopted);
 
         return $this;
     }
@@ -445,9 +439,7 @@ final class BlockNode implements Stringable
         Placeholders::insert($this->innerContent, $index, \count($nodes), $count, $this->isRoot());
         \array_splice($this->innerBlocks, $index, 0, $nodes);
 
-        foreach ($nodes as $node) {
-            $this->adopt($node);
-        }
+        $this->adoptAll($nodes);
 
         return $this;
     }
@@ -521,9 +513,7 @@ final class BlockNode implements Stringable
                 $this->detach($node);
             }
         }
-        foreach ($new as $node) {
-            $this->adopt($node);
-        }
+        $this->adoptAll($new);
 
         return $this;
     }
@@ -879,23 +869,72 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Callers check `assertAdoptable()` first, before changing anything.
+     * Makes this node the parent of the given nodes. Callers check `assertAdoptable()` on each
+     * of them first, before changing anything.
+     *
+     * A block belongs to one parent, so attaching it here takes it away from its former one.
+     * Without this, moving a block would silently duplicate it: it would stay in its former
+     * parent's children while its own pointer names the new one. The removals are grouped by
+     * former parent and made in one pass each, so moving many children stays linear.
+     *
+     * @param list<BlockNode> $nodes
      */
-    private function adopt(BlockNode $node): BlockNode
+    private function adoptAll(array $nodes): void
     {
-        // A block belongs to one parent, so attaching it here takes it away from its former one.
-        // Without this, moving a block would silently duplicate it: it would stay in its former
-        // parent's children while its own pointer names the new one.
-        if ($node->parent instanceof self && $node->parent !== $this) {
-            $index = $node->parent->indexOf($node);
-            if ($index !== null) {
-                $node->parent->removeInnerBlockAt($index);
+        $formers = [];
+        $leaving = [];
+        foreach ($nodes as $node) {
+            if ($node->parent instanceof self && $node->parent !== $this) {
+                $id = \spl_object_id($node->parent);
+                $formers[$id] = $node->parent;
+                $leaving[$id][] = $node;
             }
         }
+        foreach ($leaving as $id => $group) {
+            $formers[$id]->removeChildren($group);
+        }
 
-        $node->parent = $this;
+        foreach ($nodes as $node) {
+            $node->parent = $this;
+        }
+    }
 
-        return $node;
+    /**
+     * Takes the given children out of this node in one pass, placeholders included. Nodes that
+     * are not children of this node are skipped.
+     *
+     * @param list<BlockNode> $nodes
+     * @return list<int> The indexes the nodes had, in ascending order.
+     */
+    private function removeChildren(array $nodes): array
+    {
+        $this->assertUnlocked();
+
+        $leaving = [];
+        foreach ($nodes as $node) {
+            $leaving[\spl_object_id($node)] = true;
+        }
+
+        $indexes = [];
+        $kept = [];
+        foreach ($this->innerBlocks as $index => $child) {
+            if (isset($leaving[\spl_object_id($child)])) {
+                $indexes[] = $index;
+            } else {
+                $kept[] = $child;
+            }
+        }
+        if ($indexes === []) {
+            return [];
+        }
+
+        $this->innerContent = Placeholders::replaceMany($this->innerContent, \array_fill_keys($indexes, 0), \count($this->innerBlocks), $this->isRoot());
+        foreach ($indexes as $index) {
+            $this->detach($this->innerBlocks[$index]);
+        }
+        $this->innerBlocks = $kept;
+
+        return $indexes;
     }
 
     /**
@@ -1086,17 +1125,17 @@ final class BlockNode implements Stringable
      */
     private function removeOwnChildren(array $nodes, int $index, ?BlockNode $kept = null): int
     {
+        $own = [];
         foreach ($nodes as $node) {
-            if ($node === $kept || $node->parent !== $this) {
-                continue;
+            if ($node !== $kept && $node->parent === $this) {
+                $own[] = $node;
             }
+        }
+        if ($own === []) {
+            return $index;
+        }
 
-            $from = $this->indexOf($node);
-            if ($from === null) {
-                continue;
-            }
-
-            $this->removeInnerBlockAt($from);
+        foreach ($this->removeChildren($own) as $from) {
             if ($from < $index) {
                 $index--;
             }

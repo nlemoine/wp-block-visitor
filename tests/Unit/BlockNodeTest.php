@@ -1786,6 +1786,30 @@ final class BlockNodeTest extends TestCase
         $this->assertCount(\count($root->getInnerBlocks()), \parse_blocks((string) $root), 'a reparse must give the same top-level blocks');
     }
 
+    public function testMovingManyChildrenToAnotherParentStaysLinear(): void
+    {
+        $from = $this->wideGroup(20000);
+        $to = new BlockNode('core/group', [], [], ['<div></div>']);
+
+        $start = \hrtime(true);
+        $to->setInnerBlocks($from->getInnerBlocks());
+        $elapsed = (\hrtime(true) - $start) / 1e9;
+
+        $this->assertSame([], $from->getInnerBlocks());
+        $this->assertCount(20000, $to->getInnerBlocks());
+        // Linear takes a few hundredths of a second here; the quadratic version took seconds.
+        $this->assertLessThan(1.0, $elapsed);
+    }
+
+    private function wideGroup(int $children): BlockNode
+    {
+        return BlockNode::create([
+            'blockName' => 'core/group',
+            'innerBlocks' => \array_fill(0, $children, ['blockName' => 'core/paragraph', 'innerContent' => ['<p>x</p>']]),
+            'innerContent' => ['<div class="wp-block-group">', '</div>'],
+        ]);
+    }
+
     public function testSerializationMatchesWordPressOnEveryBlockOfTheFixture(): void
     {
         $check = function (array $parsedBlock) use (&$check): void {

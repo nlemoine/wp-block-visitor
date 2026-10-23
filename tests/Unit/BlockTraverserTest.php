@@ -853,6 +853,25 @@ HTML
         $this->assertSame(self::GROUP, (string) $root);
     }
 
+    public function testUnwrappingAWideBlockFromLeaveStaysLinear(): void
+    {
+        $root = BlockNode::createRoot('');
+        $root->appendInnerBlock(BlockNode::create([
+            'blockName' => 'core/group',
+            'innerBlocks' => \array_fill(0, 20000, ['blockName' => 'core/paragraph', 'innerContent' => ['<p>x</p>']]),
+            'innerContent' => ['<div class="wp-block-group">', '</div>'],
+        ]));
+        $visitor = $this->logger(leave: static fn (BlockNode $block): ?array => $block->getBlockName() === 'core/group' ? $block->getInnerBlocks() : null);
+
+        $start = \hrtime(true);
+        (new BlockTraverser($visitor))->traverse($root);
+        $elapsed = (\hrtime(true) - $start) / 1e9;
+
+        $this->assertCount(20000, $root->getInnerBlocks());
+        // Linear takes a few hundredths of a second here; the quadratic version took seconds.
+        $this->assertLessThan(1.0, $elapsed);
+    }
+
     public function testTakingASiblingIntoANewNodeIsRejected(): void
     {
         $visitor = $this->logger(leave: static function (BlockNode $block): ?BlockNode {
