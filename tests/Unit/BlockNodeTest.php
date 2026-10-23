@@ -219,6 +219,25 @@ final class BlockNodeTest extends TestCase
         $this->assertSame('a  b', $node->getAttribute('className'));
     }
 
+    #[DataProvider('invalidChunkProvider')]
+    public function testAChunkThatIsNeitherAStringNorAPlaceholderIsRejected(Closure $attempt): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('innerContent');
+
+        $attempt();
+    }
+
+    /**
+     * @return \Iterator<string, array{Closure(): mixed}>
+     */
+    public static function invalidChunkProvider(): \Iterator
+    {
+        yield 'setInnerContent' => [static fn (): BlockNode => (new BlockNode('core/paragraph'))->setInnerContent(['<p>', 5])];
+        yield 'constructor' => [static fn (): BlockNode => new BlockNode('core/paragraph', [], [], ['<p>', 5])];
+        yield 'create' => [static fn (): BlockNode => BlockNode::create(['blockName' => 'core/paragraph', 'innerContent' => [false]])];
+    }
+
     public function testClearContent(): void
     {
         $node = new BlockNode('core/paragraph', [], [], ['<p>', 'Some content', '</p>']);

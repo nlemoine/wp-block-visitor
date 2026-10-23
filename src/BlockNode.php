@@ -88,6 +88,7 @@ final class BlockNode implements Stringable
     ) {
 
         $this->assertBlockName($blockName);
+        $this->assertChunks($innerContent);
 
         $this->innerContent = \array_is_list($innerContent) ? $innerContent : \array_values($innerContent);
 
@@ -548,6 +549,10 @@ final class BlockNode implements Stringable
      */
     public function setInnerContent(string|array $content): self
     {
+        if (\is_array($content)) {
+            $this->assertChunks($content);
+        }
+
         $this->innerContent = \is_string($content) ? [$content] : \array_values($content);
         $this->innerContent = Placeholders::reconcile($this->innerContent, \count($this->innerBlocks), $this->isRoot());
 
@@ -985,6 +990,29 @@ final class BlockNode implements Stringable
                 $parent->getBlockName() ?? '(freeform)',
             ));
             // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+        }
+    }
+
+    /**
+     * Anything but a string or a `null` placeholder would serialize one way and read another:
+     * `__toString()` concatenates the chunk, `getInnerHTML()` skips it.
+     *
+     * @param array<mixed> $content
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertChunks(array $content): void
+    {
+        foreach ($content as $position => $chunk) {
+            if ($chunk !== null && !\is_string($chunk)) {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+                throw new InvalidArgumentException(\sprintf(
+                    'innerContent must hold HTML strings and null placeholders, found %s at position %s.',
+                    \get_debug_type($chunk),
+                    $position,
+                ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+            }
         }
     }
 
