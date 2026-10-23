@@ -91,7 +91,7 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 }
 ```
 
-`wrap()` is for the node being left. Wrapping another node from a hook, a sibling for instance, leaves it listed where it was, and the traverser rejects the pass when it applies the list. Outside a visitor, `wrap()` puts the wrapper in the child's place itself.
+`wrap()` is for the node being left. From a hook, the wrapped node keeps its place and its parent until the traverser swaps the wrapper in from what `leave()` returned. A wrapper built around any other node, or built and not returned, can be used nowhere: every mutator rejects a node that holds a block still listed elsewhere. Outside a visitor, `wrap()` puts the wrapper in the child's place itself.
 
 `enter()` can return a `BlockNode` to replace the current node before its children are visited, `Traversal::SkipChildren` to skip the subtree (`leave()` is still called), or `Traversal::Stop`. It cannot remove or expand: the traverser throws a `LogicException`. Since the children of a node returned from `enter()` are visited, returning `BlockNode::wrap($block, ...)` there visits `$block` again and wraps it forever: wrap from `leave()`.
 
@@ -161,7 +161,7 @@ $block->removeClassName('is-style-fill');
 
 ### Children
 
-Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated. Inserting into a container the parser left empty splits its markup so the block lands inside the wrapper rather than after it, and inside the inner element a cover, a media-text or a legacy group keeps for its blocks. A block appears at most once in the tree: inserting a node that is already a child of the same parent moves it, and listing the same node twice throws a `LogicException`. A root node cannot become a child: insert its inner blocks instead.
+Every child mutator keeps `innerContent` in sync: the HTML around the children is preserved, one placeholder per child is maintained, and parents are updated. Inserting into a container the parser left empty splits its markup so the block lands inside the wrapper rather than after it, and inside the inner `div` a cover, a media-text or a legacy group keeps for its blocks. A quote's citation and a gallery's caption come after the inner blocks in the editor's markup, which no rule on the closing tags can know: the first block inserted into an empty quote or gallery that already has one lands after it. A block appears at most once in the tree: inserting a node that is already a child of the same parent moves it, and listing the same node twice throws a `LogicException`. A root node cannot become a child: insert its inner blocks instead.
 
 ```php
 $block->appendInnerBlock($child);
