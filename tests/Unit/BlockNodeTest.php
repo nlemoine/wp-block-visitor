@@ -860,6 +860,15 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<section>', null, null, '</section>'], $node->getInnerContent());
     }
 
+    public function testWrapInnerContentClosesAnHtmlElementWrittenWithASelfClosingSlash(): void
+    {
+        $node = new BlockNode('core/paragraph', [], [], ['<p>x</p>']);
+
+        $node->wrapInnerContent('<div class="wrap"/>');
+
+        $this->assertSame(['<div class="wrap"/>', '<p>x</p>', '</div>'], $node->getInnerContent());
+    }
+
     public function testWrapInnerContentPrependsTheMarkupAndAppendsClosingTags(): void
     {
         $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);

@@ -54,12 +54,30 @@ final class Tags
             }
 
             $found = true;
-            if (!$processor->has_self_closing_flag() && !\in_array($tagName, self::VOID_ELEMENTS, true)) {
-                $open[] = $tagName;
+            if (\in_array($tagName, self::VOID_ELEMENTS, true)) {
+                continue;
             }
+            if ($processor->has_self_closing_flag() && self::isForeign($tagName, $open)) {
+                continue;
+            }
+            $open[] = $tagName;
         }
 
         return $found ? $open : null;
+    }
+
+    /**
+     * Whether a tag belongs to SVG or MathML content, the only place where HTML honors the
+     * self-closing slash: `<path/>` inside an svg opens nothing, `<div/>` opens a div.
+     *
+     * @param list<string> $open The elements open around the tag.
+     */
+    private static function isForeign(string $tagName, array $open): bool
+    {
+        return $tagName === 'svg'
+            || $tagName === 'math'
+            || \in_array('svg', $open, true)
+            || \in_array('math', $open, true);
     }
 
     /**

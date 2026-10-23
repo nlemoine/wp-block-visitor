@@ -30,7 +30,11 @@ final class TagsTest extends TestCase
         yield 'a closer ends the elements open inside it' => ['<div><span></div>', []];
         yield 'uppercase name is lowered' => ['<DIV>', ['div']];
         yield 'void element' => ['<br>', []];
-        yield 'self-closing flag' => ['<img src="x"/>', []];
+        yield 'self-closing flag on a void element' => ['<img src="x"/>', []];
+        yield 'self-closing flag on an HTML element is ignored, as browsers do' => ['<div class="x"/>', ['div']];
+        yield 'self-closing flag on svg' => ['<svg/>', []];
+        yield 'self-closing flag inside svg' => ['<svg><path d="M0 0"/>', ['svg']];
+        yield 'self-closing flag inside math' => ['<math><mi/>', ['math']];
         yield 'closer only' => ['</div>', null];
         yield 'no tag' => ['no tags here', null];
     }
