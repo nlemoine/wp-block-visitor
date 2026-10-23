@@ -678,17 +678,23 @@ final class BlockNode implements Stringable
     public function addClassName(string $className): self
     {
         $classNames = $this->classNames();
-        if (!\in_array($className, $classNames, true)) {
-            $classNames[] = $className;
+        if (\in_array($className, $classNames, true)) {
+            return $this;
         }
+        $classNames[] = $className;
 
         return $this->setClassNames($classNames);
     }
 
     public function removeClassName(string $className): self
     {
+        $classNames = $this->classNames();
+        if (!\in_array($className, $classNames, true)) {
+            return $this;
+        }
+
         return $this->setClassNames(\array_values(\array_filter(
-            $this->classNames(),
+            $classNames,
             static fn (string $name): bool => $name !== $className
         )));
     }

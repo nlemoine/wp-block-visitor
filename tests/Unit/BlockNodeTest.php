@@ -210,6 +210,15 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['url' => 'https://example.com'], $node->getAttributes());
     }
 
+    public function testClassNameHelpersLeaveTheAttributeAloneWhenNothingChanges(): void
+    {
+        $node = new BlockNode('core/paragraph', ['className' => 'a  b']);
+
+        $node->addClassName('a')->removeClassName('zzz');
+
+        $this->assertSame('a  b', $node->getAttribute('className'));
+    }
+
     public function testClearContent(): void
     {
         $node = new BlockNode('core/paragraph', [], [], ['<p>', 'Some content', '</p>']);
