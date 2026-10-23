@@ -675,7 +675,7 @@ final class BlockNode implements Stringable
 
     public function renameAttribute(string $from, string $to): self
     {
-        if (!$this->hasAttribute($from)) {
+        if ($from === $to || !$this->hasAttribute($from)) {
             return $this;
         }
 
