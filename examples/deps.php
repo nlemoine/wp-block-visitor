@@ -7,8 +7,8 @@ if ($root === false) {
     throw new RuntimeException('Could not resolve root directory');
 }
 
-define('ABSPATH', $root . '/tmp/wordpress/');
-define('WPINC', 'wp-includes');
+define('ABSPATH', $root . '/tmp/wordpress/'); // phpcs:ignore Syde.PHP.DisallowTopLevelDefine.Found
+define('WPINC', 'wp-includes'); // phpcs:ignore Syde.PHP.DisallowTopLevelDefine.Found
 
 require $root . '/vendor/autoload.php';
 require ABSPATH . WPINC . '/plugin.php';

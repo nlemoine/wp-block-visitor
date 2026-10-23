@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+// phpcs:disable Syde.Functions.DisallowGlobalFunction.Found, SlevomatCodingStandard.Complexity.Cognitive.ComplexityTooHigh
+
 /**
  * Generates representation of the semantic HTML tree structure.
  *

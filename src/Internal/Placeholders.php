@@ -60,7 +60,7 @@ final class Placeholders
             }
         }
 
-        throw new LogicException(\sprintf('innerContent and innerBlocks are out of sync: no placeholder for child %d.', $child));
+        throw new LogicException(\sprintf('innerContent and innerBlocks are out of sync: no placeholder for child %d.', $child)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
     }
 
     /**

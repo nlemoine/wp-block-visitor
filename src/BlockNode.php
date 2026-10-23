@@ -238,10 +238,12 @@ final class BlockNode implements Stringable
     public function setBlockName(string $newBlockName): self
     {
         if ($newBlockName === self::ROOT_BLOCK_NAME) {
+            // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new InvalidArgumentException(\sprintf(
                 'Cannot rename a block to "%s": that would drop its delimiters, use BlockNode::createRoot() for a document root.',
                 self::ROOT_BLOCK_NAME,
             ));
+            // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
 
         $this->assertBlockName($newBlockName);
@@ -325,7 +327,7 @@ final class BlockNode implements Stringable
         $this->assertUnlocked();
         $count = \count($this->innerBlocks);
         if ($index < 0 || $index >= $count) {
-            throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1));
+            throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
 
         $replacements = \array_values($replacements);
@@ -403,7 +405,7 @@ final class BlockNode implements Stringable
         $this->assertUnlocked();
         $count = \count($this->innerBlocks);
         if ($index < 0 || $index > $count) {
-            throw new OutOfRangeException(\sprintf('Cannot insert at index %d, valid indexes are 0 to %d.', $index, $count));
+            throw new OutOfRangeException(\sprintf('Cannot insert at index %d, valid indexes are 0 to %d.', $index, $count)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
 
         $nodes = \array_values($nodes);
@@ -770,10 +772,12 @@ final class BlockNode implements Stringable
         if ($this->attrs !== []) {
             $attributes = \serialize_block_attributes($this->attrs);
             if ($attributes === '') {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new RuntimeException(\sprintf(
                     'Cannot serialize the attributes of block "%s": they hold a value JSON cannot encode.',
                     $this->blockName,
                 ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             }
             $attributes .= ' ';
         }
@@ -836,10 +840,12 @@ final class BlockNode implements Stringable
         }
 
         if (\preg_match(self::BLOCK_NAME_PATTERN, $blockName) !== 1) {
+            // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new InvalidArgumentException(\sprintf(
                 'Invalid block name "%s": expected a lowercase name such as "paragraph" or "core/paragraph".',
                 $blockName,
             ));
+            // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
     }
 
@@ -893,11 +899,13 @@ final class BlockNode implements Stringable
         while ($pending !== []) {
             $current = \array_pop($pending);
             if ($current === $this) {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new LogicException(\sprintf(
                     'Cannot add block "%s" to "%s": that would close a cycle, the block already holds it.',
                     $node->getBlockName() ?? '(freeform)',
                     $this->getBlockName() ?? '(freeform)',
                 ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             }
 
             foreach ($current->innerBlocks as $child) {
@@ -915,10 +923,12 @@ final class BlockNode implements Stringable
             return;
         }
 
+        // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         throw new LogicException(\sprintf(
             'Cannot change the children of "%s" while a visitor is visiting them. Visitors must not mutate ancestors or siblings; return a value from leave() instead.',
             $this->getBlockName() ?? '(freeform)',
         ));
+        // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
     }
 
     /**
@@ -934,11 +944,13 @@ final class BlockNode implements Stringable
         foreach ($nodes as $node) {
             $id = \spl_object_id($node);
             if (isset($seen[$id])) {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new LogicException(\sprintf(
                     'Cannot add block "%s" to "%s" twice: a block appears at most once in the tree.',
                     $node->getBlockName() ?? '(freeform)',
                     $this->getBlockName() ?? '(freeform)',
                 ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             }
             $seen[$id] = true;
         }
@@ -979,16 +991,18 @@ final class BlockNode implements Stringable
         $adopted = [];
         foreach ($replacements as $index => $nodes) {
             if ($index < 0 || $index >= $count) {
-                throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1));
+                throw new OutOfRangeException(\sprintf('No inner block at index %d, valid indexes are 0 to %d.', $index, $count - 1)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             }
 
             foreach ($nodes as $node) {
                 if ($node->parent === $this && $node !== $this->innerBlocks[$index]) {
+                    // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     throw new LogicException(\sprintf(
                         'Cannot replace child %d of "%s" by one of its siblings, use replaceInnerBlockAt() to move a child.',
                         $index,
                         $this->getBlockName() ?? '(freeform)',
                     ));
+                    // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 }
                 $this->assertAdoptable($node);
                 $adopted[] = $node;

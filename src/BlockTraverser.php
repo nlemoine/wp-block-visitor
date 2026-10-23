@@ -154,12 +154,14 @@ final readonly class BlockTraverser
             return;
         }
 
+        // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         throw new LogicException(\sprintf(
             '%s() cannot return a sibling of the current node ("%s" under "%s"), return a copy or a new node instead.',
             $hook,
             $node->getBlockName() ?? '(freeform)',
             $parent->getBlockName() ?? '(freeform)',
         ));
+        // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
     }
 
     /**
@@ -173,12 +175,14 @@ final readonly class BlockTraverser
         $nodes = [];
         foreach (\array_values($result) as $position => $node) {
             if (!$node instanceof BlockNode) {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new LogicException(\sprintf(
                     '%s::leave() returned a list holding %s at position %d, only BlockNode instances are allowed.',
                     $visitor::class,
                     \get_debug_type($node),
                     $position,
                 ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
             }
 
             if ($node !== $child) {

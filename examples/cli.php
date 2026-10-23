@@ -30,7 +30,7 @@ WP_CLI::add_command('visitor', new class () {
 
         $block = $traverser->traverse($content);
 
-        echo $block;
+        echo $block; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 
     /**
@@ -49,7 +49,7 @@ WP_CLI::add_command('visitor', new class () {
 
         $traverser->traverse($this->getDemoContent());
 
-        echo $visitor;
+        echo $visitor; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 
     /**
@@ -67,7 +67,7 @@ WP_CLI::add_command('visitor', new class () {
         $traverser = new BlockTraverser($visitor);
         $traverser->traverse($this->getDemoContent());
 
-        echo $visitor;
+        echo $visitor; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 
     /**
@@ -84,7 +84,7 @@ WP_CLI::add_command('visitor', new class () {
         $content = "<!-- wp:paragraph -->\n<p>Hello</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:separator /-->\n\n<!-- wp:paragraph -->\n<p>World</p>\n<!-- /wp:paragraph -->";
         $traverser = new BlockTraverser(new WrapInGroupVisitor());
 
-        echo $traverser->traverse($content);
+        echo $traverser->traverse($content); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 
     /**
@@ -103,7 +103,7 @@ WP_CLI::add_command('visitor', new class () {
 
         $traverser->traverse($this->getDemoContent('demo-simple.html'));
 
-        echo $tree;
+        echo $tree; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 
     /**
