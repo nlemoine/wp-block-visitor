@@ -144,11 +144,10 @@ final class Placeholders
      *
      * @param list<string|null> $content
      * @param-out list<string|null> $content
+     * @param string $separator The one `separator()` gave for the list before any child was taken out of it.
      */
-    public static function insert(array &$content, int $index, int $count, int $children, bool $root): void
+    public static function insert(array &$content, int $index, int $count, int $children, string $separator): void
     {
-        $separator = self::separator($content, $root);
-
         if ($children === 0) {
             $position = self::emptyPosition($content);
             $run = self::run($count, $separator, false, false);
@@ -169,8 +168,9 @@ final class Placeholders
      *
      * @param list<string|null> $content
      * @param-out list<string|null> $content
+     * @param string $separator The one `separator()` gave for the list before any child was taken out of it.
      */
-    public static function replace(array &$content, int $child, int $children, int $count, bool $root): void
+    public static function replace(array &$content, int $child, int $children, int $count, string $separator): void
     {
         if ($count === 1) {
             return;
@@ -183,7 +183,7 @@ final class Placeholders
             return;
         }
 
-        $run = self::run($count, self::separator($content, $root), false, false);
+        $run = self::run($count, $separator, false, false);
         \array_splice($content, $position, 1, $run);
     }
 

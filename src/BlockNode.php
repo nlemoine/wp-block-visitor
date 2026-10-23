@@ -357,8 +357,9 @@ final class BlockNode implements Stringable
         }
 
         $old = $this->innerBlocks[$index];
+        $separator = Placeholders::separator($this->innerContent, $this->isRoot());
         $index = $this->removeOwnChildren($replacements, $index, $old);
-        $this->spliceChild($index, $replacements);
+        $this->spliceChild($index, $replacements, $separator);
 
         if (!\in_array($old, $replacements, true)) {
             $this->detach($old);
@@ -436,13 +437,17 @@ final class BlockNode implements Stringable
             $this->assertAdoptable($node);
         }
 
+        // Read before the own children are taken out: a list emptied by the move is not an empty
+        // container, and the separator is the one its siblings used.
+        $wasEmpty = $this->innerBlocks === [];
+        $separator = Placeholders::separator($this->innerContent, $this->isRoot());
+
         $index = $this->removeOwnChildren($nodes, $index);
-        $count = \count($this->innerBlocks);
-        if ($count === 0) {
+        if ($wasEmpty) {
             $this->splitEmptyContainer();
         }
 
-        Placeholders::insert($this->innerContent, $index, \count($nodes), $count, $this->isRoot());
+        Placeholders::insert($this->innerContent, $index, \count($nodes), \count($this->innerBlocks), $separator);
         \array_splice($this->innerBlocks, $index, 0, $nodes);
 
         $this->adoptAll($nodes);
@@ -1088,7 +1093,7 @@ final class BlockNode implements Stringable
      *
      * @param list<BlockNode> $replacements
      */
-    private function spliceChild(int $index, array $replacements): void
+    private function spliceChild(int $index, array $replacements, string $separator): void
     {
         if (\count($replacements) === 1) {
             // A swap leaves the placeholder where it is, and overwriting an existing index keeps a list.
@@ -1100,7 +1105,7 @@ final class BlockNode implements Stringable
             return;
         }
 
-        Placeholders::replace($this->innerContent, $index, \count($this->innerBlocks), \count($replacements), $this->isRoot());
+        Placeholders::replace($this->innerContent, $index, \count($this->innerBlocks), \count($replacements), $separator);
         \array_splice($this->innerBlocks, $index, 1, $replacements);
     }
 

@@ -1860,6 +1860,33 @@ final class BlockNodeTest extends TestCase
         yield 'replacing a child by two earlier siblings' => [static fn (BlockNode $list, BlockNode $a, BlockNode $b, BlockNode $c, BlockNode $d): BlockNode => $list->replaceInnerBlockAt(2, $a, $b), '1,2,4'];
     }
 
+    public function testMovingEveryChildOfAHandWrittenContainerKeepsItsMarkup(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')]);
+        $node->setInnerContent('<p class="intro">Intro</p>');
+        [$a, $b] = $node->getInnerBlocks();
+        $content = $node->getInnerContent();
+
+        $node->insertInnerBlockAt(0, $b, $a);
+
+        $this->assertSame([$b, $a], $node->getInnerBlocks());
+        $this->assertSame($content, $node->getInnerContent(), 'the markup must not be cut as if the container were empty');
+        $this->assertSame('<p class="intro">Intro</p>', $content[0]);
+    }
+
+    public function testMovingAChildKeepsTheSeparatorTheListUsed(): void
+    {
+        $columns = new BlockNode('core/columns', [], [new BlockNode('core/column'), new BlockNode('core/column')], ['<div class="wp-block-columns">', null, null, '</div>']);
+        [$first, $second] = $columns->getInnerBlocks();
+
+        $columns->insertInnerBlockAt(0, $second);
+        $this->assertSame(['<div class="wp-block-columns">', null, null, '</div>'], $columns->getInnerContent());
+
+        $columns->replaceInnerBlockAt(0, $first, $second);
+        $this->assertSame([$first, $second], $columns->getInnerBlocks());
+        $this->assertSame(['<div class="wp-block-columns">', null, null, '</div>'], $columns->getInnerContent());
+    }
+
     public function testMovingManyChildrenToAnotherParentStaysLinear(): void
     {
         $from = $this->wideGroup(20000);

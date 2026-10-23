@@ -87,7 +87,7 @@ final class PlaceholdersTest extends TestCase
     #[DataProvider('insertProvider')]
     public function testInsert(array $content, int $index, int $count, int $children, array $expected): void
     {
-        Placeholders::insert($content, $index, $count, $children, false);
+        Placeholders::insert($content, $index, $count, $children, Placeholders::separator($content, false));
 
         $this->assertSame($expected, $content);
     }
@@ -113,7 +113,7 @@ final class PlaceholdersTest extends TestCase
     {
         $content = self::GROUP;
 
-        Placeholders::replace($content, $child, 3, $count, false);
+        Placeholders::replace($content, $child, 3, $count, Placeholders::separator($content, false));
 
         $this->assertSame($expected, $content);
     }
@@ -186,7 +186,7 @@ final class PlaceholdersTest extends TestCase
             $total = $children;
             \krsort($counts);
             foreach ($counts as $child => $count) {
-                Placeholders::replace($oneByOne, $child, $total, $count, false);
+                Placeholders::replace($oneByOne, $child, $total, $count, Placeholders::separator($oneByOne, false));
                 $total += $count - 1;
             }
 
