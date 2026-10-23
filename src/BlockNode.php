@@ -86,7 +86,7 @@ final class BlockNode implements Stringable
      * @param list<array<string, mixed>|BlockNode> $innerBlocks
      * @param list<string|null> $innerContent
      *
-     * @throws InvalidArgumentException When the name or the attributes would not survive serialization.
+     * @throws InvalidArgumentException When the name would not survive serialization.
      * @throws LogicException When the same node is listed twice.
      */
     public function __construct(
@@ -97,7 +97,6 @@ final class BlockNode implements Stringable
     ) {
 
         $this->assertBlockName($blockName);
-        $this->assertAttributes($attrs);
 
         $this->innerContent = \array_is_list($innerContent) ? $innerContent : \array_values($innerContent);
 
@@ -648,8 +647,6 @@ final class BlockNode implements Stringable
      */
     public function setAttributes(array $attributes): self
     {
-        $this->assertAttributes($attributes);
-
         $this->attrs = $attributes;
 
         return $this;
@@ -657,11 +654,7 @@ final class BlockNode implements Stringable
 
     public function setAttribute(string $attribute, mixed $value): self
     {
-        $attributes = $this->attrs;
-        $attributes[$attribute] = $value;
-        $this->assertAttributes($attributes);
-
-        $this->attrs = $attributes;
+        $this->attrs[$attribute] = $value;
 
         return $this;
     }
@@ -794,7 +787,9 @@ final class BlockNode implements Stringable
         // attributes a second time after the check below.
         $attributes = '';
         if ($this->attrs !== []) {
-            $attributes = \serialize_block_attributes($this->attrs);
+            // The parser only reads a JSON object from the delimiter, and a list would encode as
+            // `["a"]` and swallow the blocks that follow. Cast, it keeps its numeric keys: `{"0":"a"}`.
+            $attributes = \serialize_block_attributes(\array_is_list($this->attrs) ? (object) $this->attrs : $this->attrs);
             if ($attributes === '') {
                 // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new RuntimeException(\sprintf(
@@ -905,21 +900,6 @@ final class BlockNode implements Stringable
                 $blockName,
             ));
             // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
-        }
-    }
-
-    /**
-     * WordPress writes the attributes into the delimiter as JSON, and its parser only accepts an
-     * object there. A non-empty list would encode as `["a"]` and swallow the blocks that follow.
-     *
-     * @param array<string, mixed> $attributes
-     *
-     * @throws InvalidArgumentException
-     */
-    private function assertAttributes(array $attributes): void
-    {
-        if ($attributes !== [] && \array_is_list($attributes)) {
-            throw new InvalidArgumentException('Block attributes must be a map, a list would not survive serialization.');
         }
     }
 

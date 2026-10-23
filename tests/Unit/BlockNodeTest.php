@@ -1089,23 +1089,28 @@ final class BlockNodeTest extends TestCase
         yield ["\t"];
     }
 
-    public function testAttributesMustBeAMap(): void
+    public function testListShapedAttributesSerializeAsAJsonObject(): void
     {
-        $node = new BlockNode('core/paragraph');
+        $node = new BlockNode('core/paragraph', ['a', 'b']);
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('must be a map');
-
-        $node->setAttributes(['a', 'b']);
+        $this->assertSame('<!-- wp:paragraph {"0":"a","1":"b"} /-->', (string) $node);
+        $this->assertSame(['a', 'b'], \parse_blocks((string) $node)[0]['attrs']);
     }
 
-    public function testANumericAttributeNameThatWouldMakeAListIsRejected(): void
+    public function testRemovingAnAttributeThatLeavesOnlyNumericKeysStillRoundTrips(): void
     {
-        $node = new BlockNode('core/paragraph');
+        $node = BlockNode::createFromString('<!-- wp:paragraph {"0":"a","b":1} /-->');
 
-        $this->expectException(InvalidArgumentException::class);
+        $node->removeAttribute('b');
 
-        $node->setAttribute('0', 'a');
+        $this->assertSame('<!-- wp:paragraph {"0":"a"} /-->', (string) $node);
+    }
+
+    public function testADocumentWithNumericAttributeKeysIsAccepted(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:paragraph {"0":"a"} /-->');
+
+        $this->assertSame([0 => 'a'], $root->getInnerBlocks()[0]->getAttributes());
     }
 
     public function testAttributesStayAMapWhenAnotherKeyIsPresent(): void
@@ -1115,6 +1120,7 @@ final class BlockNodeTest extends TestCase
         $node->setAttribute('0', 'a');
 
         $this->assertSame(['className' => 'x', 0 => 'a'], $node->getAttributes());
+        $this->assertSame('<!-- wp:paragraph {"className":"x","0":"a"} /-->', (string) $node);
     }
 
     #[DataProvider('invalidBlockNameProvider')]
@@ -1287,13 +1293,6 @@ final class BlockNodeTest extends TestCase
 
         $this->assertSame('my_plugin/my_block', $root->getInnerBlocks()[0]->getBlockName());
         $this->assertSame('<!-- wp:my_plugin/my_block /-->', (string) $root);
-    }
-
-    public function testTheConstructorRejectsAttributesGivenAsAList(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        BlockNode::create(['blockName' => 'core/paragraph', 'attrs' => ['x'], 'innerContent' => ['<p>1</p>']]);
     }
 
     public function testInsertingAChildIntoItsOwnParentMovesIt(): void
