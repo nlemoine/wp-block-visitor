@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor;
 
-use LogicException;
+use n5s\BlockVisitor\Exception\LogicException;
 use n5s\BlockVisitor\Visitor\BlockVisitorInterface;
 use n5s\BlockVisitor\Visitor\PrioritizedVisitorInterface;
 use n5s\BlockVisitor\Visitor\Traversal;

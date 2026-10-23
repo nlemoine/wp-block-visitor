@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor\Internal;
 
-use LogicException;
+use n5s\BlockVisitor\Exception\LogicException;
 
 /**
  * The layout rules of an `innerContent` list, where the k-th `null` is the placeholder of

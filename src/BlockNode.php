@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor;
 
-use InvalidArgumentException;
-use LogicException;
+use n5s\BlockVisitor\Exception\InvalidArgumentException;
+use n5s\BlockVisitor\Exception\LogicException;
+use n5s\BlockVisitor\Exception\OutOfRangeException;
+use n5s\BlockVisitor\Exception\RuntimeException;
 use n5s\BlockVisitor\Internal\Placeholders;
 use n5s\BlockVisitor\Internal\Tags;
-use OutOfRangeException;
-use RuntimeException;
 use Stringable;
 
 /**
