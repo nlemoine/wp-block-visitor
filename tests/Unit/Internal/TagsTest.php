@@ -37,6 +37,9 @@ final class TagsTest extends TestCase
         yield 'self-closing flag inside math' => ['<math><mi/>', ['math']];
         yield 'closer only' => ['</div>', null];
         yield 'no tag' => ['no tags here', null];
+        yield 'raw text elements are read as one token, so they never open' => ['<div class="x"><style>.x{}</style>', ['div']];
+        yield 'a script holding a closer in its text' => ['<div><script>var a = "</div>";</script>', ['div']];
+        yield 'textarea' => ['<section><textarea></textarea>', ['section']];
     }
 
     #[DataProvider('emptyPositionProvider')]
@@ -65,12 +68,21 @@ final class TagsTest extends TestCase
             '<div class="wp-block-media-text"><figure class="wp-block-media-text__media"></figure><div class="wp-block-media-text__content">',
             '</div></div>',
         );
+        yield 'empty media-text with the media on the right' => $inside(
+            '<div class="wp-block-media-text has-media-on-the-right"><div class="wp-block-media-text__content">',
+            '</div><figure class="wp-block-media-text__media"></figure></div>',
+        );
+        yield 'media-text with a video on the right' => $inside(
+            '<div class="wp-block-media-text has-media-on-the-right"><div class="wp-block-media-text__content">',
+            '</div><figure class="wp-block-media-text__media"><video controls src="x.mp4"></video></figure></div>',
+        );
+        yield 'empty list' => $inside('<ul class="wp-block-list">', '</ul>');
         yield 'details keep the summary before the children' => $inside('<details class="wp-block-details"><summary>Title</summary>', '</details>');
         yield 'empty quote' => $inside('<blockquote class="wp-block-quote">', '</blockquote>');
         yield 'whitespace inside still counts as empty' => $inside('<div class="wp-block-group">', "\n</div>");
-        yield 'the last empty element wins over a filled one after it' => $inside(
-            '<div class="wp-block-media-text"><figure class="wp-block-media-text__media">',
-            '</figure><div class="wp-block-media-text__content"><p>raw</p></div></div>',
+        yield 'a filled content element falls back to the last closer, not to an empty figure' => $inside(
+            '<div class="wp-block-media-text"><figure class="wp-block-media-text__media"></figure><div class="wp-block-media-text__content"><p>raw</p></div>',
+            '</div>',
         );
         yield 'paragraph with text' => $inside('<p>x', '</p>');
         yield 'closer inside a comment does not count' => $inside('<!-- </div> --><div>', '</div>');

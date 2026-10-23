@@ -26,6 +26,16 @@ final class Tags
         'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr',
     ];
 
+    /**
+     * Elements whose content the WordPress HTML API reads as part of their opening token, so
+     * their closing tag is never visited.
+     *
+     * @see https://html.spec.whatwg.org/multipage/syntax.html#raw-text-elements
+     */
+    private const array RAW_TEXT_ELEMENTS = [
+        'iframe', 'noembed', 'noframes', 'script', 'style', 'textarea', 'title', 'xmp',
+    ];
+
     private function __construct()
     {
     }
@@ -54,7 +64,7 @@ final class Tags
             }
 
             $found = true;
-            if (\in_array($tagName, self::VOID_ELEMENTS, true)) {
+            if (\in_array($tagName, self::VOID_ELEMENTS, true) || \in_array($tagName, self::RAW_TEXT_ELEMENTS, true)) {
                 continue;
             }
             if ($processor->has_self_closing_flag() && self::isForeign($tagName, $open)) {
@@ -83,9 +93,10 @@ final class Tags
     /**
      * Where the children of an empty container go in its markup.
      *
-     * Inside the last empty element, which is the one the editor leaves for the inner blocks of
-     * a cover, a media-text or a legacy group; otherwise, as in a details block whose summary
-     * holds text, before the last closing tag. Null when the markup has no closing tag.
+     * Inside the last empty `div`, which is the one the editor leaves for the inner blocks of a
+     * cover, a media-text or a legacy group (an empty `figure` or `video` after it is media, not a
+     * slot); otherwise, as in a details block whose summary holds text, before the last closing
+     * tag. Null when the markup has no closing tag.
      */
     public static function emptyPosition(string $html): ?int
     {
@@ -125,7 +136,7 @@ final class Tags
             $tagName = \strtolower((string) $processor->get_tag());
             if ($processor->is_tag_closer()) {
                 $lastCloser = $span[0] ?? $lastCloser;
-                if ($opener !== null && $opener[0] === $tagName) {
+                if ($tagName === 'div' && $opener !== null && $opener[0] === $tagName) {
                     $lastEmpty = $opener[1];
                 }
                 $opener = null;
