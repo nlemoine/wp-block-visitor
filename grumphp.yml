@@ -1,0 +1,21 @@
+# Pre-commit gate: the four steps of `composer qa`, run through the composer
+# scripts so the tool invocations stay defined in one place (composer.json).
+grumphp:
+    process_timeout: 300
+    tasks:
+        cs:
+            metadata: { task: composer_script }
+            script: cs
+            triggered_by: &qa_files [php, dist, json, json5, neon, xml]
+        phpstan:
+            metadata: { task: composer_script }
+            script: phpstan
+            triggered_by: *qa_files
+        rector:
+            metadata: { task: composer_script }
+            script: rector
+            triggered_by: *qa_files
+        test:
+            metadata: { task: composer_script }
+            script: test
+            triggered_by: *qa_files

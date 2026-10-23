@@ -17,6 +17,7 @@
         "infection/infection": "^0.35",
         "mantle-framework/testkit": "^1.20",
         "phpbench/phpbench": "^1.7",
+        "phpro/grumphp": "^2.26",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12",
@@ -46,6 +47,7 @@
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "ergebnis/composer-normalize": true,
             "infection/extension-installer": true,
+            "phpro/grumphp": true,
             "phpstan/extension-installer": true,
             "roots/wordpress-core-installer": true
         },
