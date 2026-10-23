@@ -193,12 +193,12 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Creates a new block wrapping the given node.
+     * Creates a new block wrapping the given node, in that node's place.
      *
-     * Unlike the constructor, this leaves the child listed by its current parent until the
-     * wrapper takes its place: returned from `leave()`, the traverser makes the swap. Outside
-     * a visitor, make it yourself with `replaceInnerBlockAt()`, otherwise the child is listed
-     * twice.
+     * Outside a traversal, the wrapper takes the child's place in its parent right away. From a
+     * visitor, the children of the parent are locked, so the child stays listed there until the
+     * wrapper is returned from `leave()`, where the traverser makes the swap: wrap only the node
+     * being left.
      *
      * @param array<string, mixed> $attrs
      * @param string $before HTML emitted before the wrapped block, e.g. `<div class="wp-block-group">`.
@@ -221,11 +221,19 @@ final class BlockNode implements Stringable
             $innerContent[] = $after;
         }
 
-        // Filled by hand because the constructor would take the child away from its parent,
-        // and the traverser rejects a hook that changed the parent's children.
+        // Filled by hand: the constructor would take the child away from its parent, which the
+        // lock a visitor holds on that parent forbids.
         $wrapper = new self($blockName, $attrs);
         $wrapper->innerBlocks = [$child];
         $wrapper->innerContent = $innerContent;
+
+        $parent = $child->parent;
+        if ($parent instanceof self && $parent->childrenLocks === 0) {
+            $index = $parent->indexOf($child);
+            if ($index !== null) {
+                $parent->replaceInnerBlockAt($index, $wrapper);
+            }
+        }
         $child->parent = $wrapper;
 
         return $wrapper;
@@ -1051,6 +1059,20 @@ final class BlockNode implements Stringable
      */
     private function assertReplacements(array $replacements): array
     {
+        // A child wrapped from a hook points to its wrapper while still listed here; unless the
+        // wrapper replaces it, both would serialize it.
+        foreach ($this->innerBlocks as $index => $child) {
+            if ($child->parent !== $this && !\array_key_exists($index, $replacements)) {
+                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+                throw new LogicException(\sprintf(
+                    'Child %d of "%s" is still listed but no longer belongs to it: wrap only the node being left, and return the wrapper from leave().',
+                    $index,
+                    $this->getBlockName() ?? '(freeform)',
+                ));
+                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+            }
+        }
+
         $count = \count($this->innerBlocks);
         $adopted = [];
         foreach ($replacements as $index => $nodes) {

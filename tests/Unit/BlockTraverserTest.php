@@ -825,6 +825,34 @@ HTML
         $this->assertSame(self::TWO_TOP_LEVEL, (string) $root);
     }
 
+    public function testReturningTheWrapperOfASiblingIsRejectedBeforeAnythingChanges(): void
+    {
+        $root = BlockNode::createRoot(self::GROUP);
+        $previous = null;
+        $visitor = $this->logger(leave: static function (BlockNode $block) use (&$previous): ?array {
+            if ($block->getBlockName() !== 'core/paragraph') {
+                return null;
+            }
+            if (!$previous instanceof BlockNode) {
+                $previous = $block;
+
+                return null;
+            }
+
+            return [BlockNode::wrap($previous, 'core/group', [], '<div>', '</div>'), $block];
+        });
+
+        try {
+            (new BlockTraverser($visitor))->traverse($root);
+            $this->fail('Wrapping a sibling from leave() should be rejected');
+        } catch (LogicException $exception) {
+            $this->assertStringContainsString('is still listed', $exception->getMessage());
+        }
+
+        $this->assertCount(2, $root->getInnerBlocks()[0]->getInnerBlocks());
+        $this->assertSame(self::GROUP, (string) $root);
+    }
+
     public function testTakingASiblingIntoANewNodeIsRejected(): void
     {
         $visitor = $this->logger(leave: static function (BlockNode $block): ?BlockNode {

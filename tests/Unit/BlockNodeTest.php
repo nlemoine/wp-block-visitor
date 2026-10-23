@@ -659,7 +659,7 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<div>', null, '</div>'], $node->getInnerContent());
     }
 
-    public function testWrapCreatesAParentAroundTheChildWithoutDetachingIt(): void
+    public function testWrapTakesTheChildsPlaceInItsParent(): void
     {
         $group = $this->group();
         $child = $group->getInnerBlocks()[0];
@@ -671,13 +671,44 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<div class="cover">', null, '</div>'], $wrapper->getInnerContent());
         $this->assertSame([$child], $wrapper->getInnerBlocks());
         $this->assertSame($wrapper, $child->getParent());
-        $this->assertSame(0, $group->indexOf($child), 'the child is still listed by its former parent until it is replaced');
+        $this->assertSame($wrapper, $group->getInnerBlocks()[0]);
+        $this->assertSame($group, $wrapper->getParent());
+        $this->assertCount(2, $group->getInnerBlocks());
+        $this->assertSame(2, $child->getDepth());
+        $this->assertSame(1, \substr_count((string) $group, '<p>A</p>'));
+    }
 
+    public function testWrapLeavesTheChildListedWhileItsParentIsLocked(): void
+    {
+        $group = $this->group();
+        $child = $group->getInnerBlocks()[0];
+        $group->lockChildren();
+
+        $wrapper = BlockNode::wrap($child, 'core/cover');
+
+        $this->assertSame([$child], $wrapper->getInnerBlocks());
+        $this->assertSame($wrapper, $child->getParent());
+        $this->assertSame(0, $group->indexOf($child), 'the child is still listed by its former parent until the traverser swaps it');
+
+        $group->unlockChildren();
         $group->replaceInnerBlockAt(0, $wrapper);
 
         $this->assertSame($group, $wrapper->getParent());
         $this->assertSame($wrapper, $child->getParent(), 'replacing the child by its wrapper must not detach it from the wrapper');
-        $this->assertSame(2, $child->getDepth());
+    }
+
+    public function testAWrapperCanBeMovedToAnotherParentWithoutDuplicatingTheChild(): void
+    {
+        $group = $this->group();
+        $child = $group->getInnerBlocks()[0];
+        $other = new BlockNode('core/column', [], [], ['<div></div>']);
+
+        $other->appendInnerBlock(BlockNode::wrap($child, 'core/cover'));
+
+        $this->assertCount(1, $group->getInnerBlocks());
+        $this->assertCount(1, $other->getInnerBlocks());
+        $this->assertSame(0, \substr_count((string) $group, '<p>A</p>'));
+        $this->assertSame(1, \substr_count((string) $other, '<p>A</p>'));
     }
 
     public function testWrapWithoutMarkupOnlyHoldsThePlaceholder(): void
