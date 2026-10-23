@@ -23,12 +23,28 @@ final class RecordingVisitor extends AbstractBlockVisitor implements Prioritized
     /**
      * @param (Closure(BlockNode): (BlockNode|Traversal|null))|null $onEnter
      * @param (Closure(BlockNode): (BlockNode|list<BlockNode>|Traversal|null))|null $onLeave
+     * @param (Closure(BlockNode): void)|null $onAfterTraverse
      */
     public function __construct(
         private readonly ?Closure $onEnter = null,
         private readonly ?Closure $onLeave = null,
         private readonly int $priority = 0,
+        private readonly ?Closure $onAfterTraverse = null,
     ) {
+    }
+
+    public function beforeTraverse(BlockNode $root): void
+    {
+        $this->log[] = 'before ' . ($root->getBlockName() ?? '(freeform)');
+    }
+
+    public function afterTraverse(BlockNode $root): void
+    {
+        $this->log[] = 'after ' . ($root->getBlockName() ?? '(freeform)');
+
+        if ($this->onAfterTraverse instanceof \Closure) {
+            ($this->onAfterTraverse)($root);
+        }
     }
 
     public function enter(BlockNode $block): BlockNode|Traversal|null

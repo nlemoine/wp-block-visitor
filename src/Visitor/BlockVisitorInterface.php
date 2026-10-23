@@ -20,6 +20,18 @@ use n5s\BlockVisitor\BlockNode;
 interface BlockVisitorInterface
 {
     /**
+     * Called once before this visitor's pass over the tree, with the root that is about to be
+     * traversed. The place to reset state kept between documents.
+     */
+    public function beforeTraverse(BlockNode $root): void;
+
+    /**
+     * Called once after this visitor's pass over the tree, with the root as the pass left it.
+     * Also called when the pass ended with `Traversal::Stop`, not when a hook threw.
+     */
+    public function afterTraverse(BlockNode $root): void;
+
+    /**
      * Called before the children of the node are visited.
      *
      * Children added to the node here will be visited. So are the children of a node

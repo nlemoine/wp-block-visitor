@@ -82,12 +82,14 @@ HTML;
         (new BlockTraverser($visitor))->traverse(self::GROUP);
 
         $this->assertSame([
+            'before @root',
             'enter core/group',
             'enter core/paragraph',
             'leave core/paragraph',
             'enter core/paragraph',
             'leave core/paragraph',
             'leave core/group',
+            'after @root',
         ], $visitor->log);
     }
 
@@ -98,7 +100,7 @@ HTML;
         (new BlockTraverser($visitor))->traverse('');
         (new BlockTraverser($visitor))->traverse(BlockNode::createRoot(''));
 
-        $this->assertSame([], $visitor->log);
+        $this->assertSame(['before @root', 'after @root', 'before @root', 'after @root'], $visitor->log);
     }
 
     public function testNullDoesNothing(): void
@@ -115,7 +117,7 @@ HTML;
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
 
-        $this->assertSame(['enter core/group', 'leave core/group'], $visitor->log);
+        $this->assertSame(['before @root', 'enter core/group', 'leave core/group', 'after @root'], $visitor->log);
     }
 
     public function testStopFromEnterEndsThePassImmediately(): void
@@ -124,7 +126,7 @@ HTML;
 
         (new BlockTraverser($visitor))->traverse(self::TWO_TOP_LEVEL);
 
-        $this->assertSame(['enter core/group', 'enter core/paragraph'], $visitor->log);
+        $this->assertSame(['before @root', 'enter core/group', 'enter core/paragraph', 'after @root'], $visitor->log);
     }
 
     public function testStopFromLeaveEndsThePassAtEveryLevel(): void
@@ -133,7 +135,7 @@ HTML;
 
         (new BlockTraverser($visitor))->traverse(self::TWO_TOP_LEVEL);
 
-        $this->assertSame(['enter core/group', 'enter core/paragraph', 'leave core/paragraph'], $visitor->log);
+        $this->assertSame(['before @root', 'enter core/group', 'enter core/paragraph', 'leave core/paragraph', 'after @root'], $visitor->log);
     }
 
     public function testStopFromLeaveStillAppliesPendingReplacements(): void
@@ -165,8 +167,8 @@ HTML;
 
         (new BlockTraverser($stopping, $counting))->traverse(self::GROUP);
 
-        $this->assertCount(1, $stopping->log);
-        $this->assertCount(6, $counting->log);
+        $this->assertSame(['before @root', 'enter core/group', 'after @root'], $stopping->log);
+        $this->assertCount(8, $counting->log);
     }
 
     public function testEachVisitorGetsItsOwnPassAndSeesPreviousChanges(): void
@@ -181,7 +183,7 @@ HTML;
 
         (new BlockTraverser($remover, $counting))->traverse(self::GROUP);
 
-        $this->assertSame(['enter core/group', 'leave core/group'], $counting->log);
+        $this->assertSame(['before @root', 'enter core/group', 'leave core/group', 'after @root'], $counting->log);
     }
 
     public function testPriorityDecidesThePassOrder(): void
@@ -394,10 +396,12 @@ HTML
         $root = (new BlockTraverser($visitor))->traverse(self::GROUP);
 
         $this->assertSame([
+            'before @root',
             'enter core/group',
             'enter core/column',
             'leave core/column',
             'leave core/columns',
+            'after @root',
         ], $visitor->log);
         $this->assertSame('core/columns', $root->getInnerBlocks()[0]->getBlockName());
         $this->assertSame($root, $root->getInnerBlocks()[0]->getParent());
@@ -922,6 +926,49 @@ HTML
         $this->expectExceptionMessage('Cannot change the children of "@root"');
 
         (new BlockTraverser($outer))->traverse(self::TWO_TOP_LEVEL);
+    }
+
+    public function testEachPassIsWrappedInBeforeAndAfterTraverse(): void
+    {
+        $first = $this->logger();
+        $second = $this->logger();
+
+        (new BlockTraverser($first, $second))->traverse('<!-- wp:paragraph /-->');
+
+        $this->assertSame(['before @root', 'enter core/paragraph', 'leave core/paragraph', 'after @root'], $first->log);
+        $this->assertSame($first->log, $second->log);
+    }
+
+    public function testAfterTraverseSeesTheMutatedRootAndRunsAfterAStop(): void
+    {
+        $seen = null;
+        $visitor = new RecordingVisitor(
+            static fn (): Traversal => Traversal::Stop,
+            null,
+            onAfterTraverse: static function (BlockNode $root) use (&$seen): void {
+                $seen = $root;
+            },
+        );
+        $root = BlockNode::createRoot(self::TWO_TOP_LEVEL);
+
+        (new BlockTraverser($visitor))->traverse($root);
+
+        $this->assertSame($root, $seen);
+        $this->assertSame(['before @root', 'enter core/group', 'after @root'], $visitor->log);
+    }
+
+    public function testAfterTraverseIsSkippedWhenAHookThrows(): void
+    {
+        $visitor = $this->logger(enter: static function (): never {
+            throw new RuntimeException('boom');
+        });
+
+        try {
+            (new BlockTraverser($visitor))->traverse('<!-- wp:paragraph /-->');
+        } catch (RuntimeException) {
+        }
+
+        $this->assertSame(['before @root', 'enter core/paragraph'], $visitor->log);
     }
 
     public function testAReadOnlyNestedTraversalOfAnAncestorCompletes(): void

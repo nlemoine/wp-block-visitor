@@ -13,7 +13,8 @@ use n5s\BlockVisitor\Visitor\Traversal;
  * Applies visitors to a block tree.
  *
  * Each visitor gets its own full pass over the tree, in priority order then
- * registration order, so a visitor sees the result of the previous ones.
+ * registration order, so a visitor sees the result of the previous ones. A pass
+ * is wrapped in `beforeTraverse()` and `afterTraverse()`, both given the root.
  * Within a pass, nodes are visited depth-first in document order: `enter()`
  * before the children, `leave()` after them. The root node itself is never visited.
  */
@@ -49,7 +50,9 @@ final readonly class BlockTraverser
         $root = $root instanceof BlockNode ? $root : BlockNode::createRoot($root);
 
         foreach ($this->visitors as $visitor) {
+            $visitor->beforeTraverse($root);
             $this->traverseChildren($root, $visitor);
+            $visitor->afterTraverse($root);
         }
 
         return $root;

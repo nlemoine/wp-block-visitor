@@ -11,6 +11,14 @@ use n5s\BlockVisitor\BlockNode;
  */
 abstract class AbstractBlockVisitor implements BlockVisitorInterface
 {
+    public function beforeTraverse(BlockNode $root): void
+    {
+    }
+
+    public function afterTraverse(BlockNode $root): void
+    {
+    }
+
     public function enter(BlockNode $block): BlockNode|Traversal|null
     {
         return null;
