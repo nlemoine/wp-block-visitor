@@ -564,6 +564,20 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(["\n<div class=\"wp-block-group\">", null, "</div>\n"], $group->getInnerContent());
     }
 
+    public function testInsertIntoAnEmptyNestedContainerLandsInTheInnerElement(): void
+    {
+        $node = BlockNode::createFromString(
+            '<!-- wp:media-text --><div class="wp-block-media-text"><figure class="wp-block-media-text__media"></figure><div class="wp-block-media-text__content"></div></div><!-- /wp:media-text -->'
+        );
+
+        $node->appendInnerBlock(new BlockNode('core/paragraph', [], [], ['<p>x</p>']));
+
+        $this->assertSame(
+            ['<div class="wp-block-media-text"><figure class="wp-block-media-text__media"></figure><div class="wp-block-media-text__content">', null, '</div></div>'],
+            $node->getInnerContent()
+        );
+    }
+
     public function testInsertThenRemoveRestoresTheOriginalContent(): void
     {
         $group = $this->group();

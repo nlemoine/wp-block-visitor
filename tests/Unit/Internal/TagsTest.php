@@ -42,13 +42,34 @@ final class TagsTest extends TestCase
     }
 
     /**
+     * Each case is the markup split where the children go, so the expected position reads as
+     * the length of the first half.
+     *
      * @return \Iterator<string, array{string, int|null}>
      */
     public static function emptyPositionProvider(): \Iterator
     {
-        yield 'empty group' => ['<div class="wp-block-group"></div>', 28];
-        yield 'paragraph with text' => ['<p>x</p>', 4];
-        yield 'closer inside a comment does not count' => ['<!-- </div> --><div></div>', 20];
+        $inside = static fn (string $before, string $after): array => [$before . $after, \strlen($before)];
+
+        yield 'empty group' => $inside('<div class="wp-block-group">', '</div>');
+        yield 'legacy group' => $inside('<div class="wp-block-group"><div class="wp-block-group__inner-container">', '</div></div>');
+        yield 'empty cover' => $inside(
+            '<div class="wp-block-cover"><span aria-hidden="true" class="wp-block-cover__background has-background-dim"></span><div class="wp-block-cover__inner-container">',
+            '</div></div>',
+        );
+        yield 'empty media-text' => $inside(
+            '<div class="wp-block-media-text"><figure class="wp-block-media-text__media"></figure><div class="wp-block-media-text__content">',
+            '</div></div>',
+        );
+        yield 'details keep the summary before the children' => $inside('<details class="wp-block-details"><summary>Title</summary>', '</details>');
+        yield 'empty quote' => $inside('<blockquote class="wp-block-quote">', '</blockquote>');
+        yield 'whitespace inside still counts as empty' => $inside('<div class="wp-block-group">', "\n</div>");
+        yield 'the last empty element wins over a filled one after it' => $inside(
+            '<div class="wp-block-media-text"><figure class="wp-block-media-text__media">',
+            '</figure><div class="wp-block-media-text__content"><p>raw</p></div></div>',
+        );
+        yield 'paragraph with text' => $inside('<p>x', '</p>');
+        yield 'closer inside a comment does not count' => $inside('<!-- </div> --><div>', '</div>');
         yield 'void element' => ['<br>', null];
         yield 'no tag' => ['text', null];
     }

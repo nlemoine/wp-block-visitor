@@ -1120,9 +1120,9 @@ final class BlockNode implements Stringable
      * Prepares a node without children for its first ones.
      *
      * A container the parser left empty keeps its opening and closing markup in a single chunk,
-     * so the chunk is cut before its last closing tag and the children land between the two
-     * halves; otherwise they would serialize after the wrapper instead of inside it. Only called
-     * when inserting: content set by hand is taken as given.
+     * so the chunk is cut where its children go (see `Tags::emptyPosition()`) and they land
+     * between the two halves; otherwise they would serialize after the wrapper instead of inside
+     * it. Only called when inserting: content set by hand is taken as given.
      */
     private function splitEmptyContainer(): void
     {

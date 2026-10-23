@@ -63,28 +63,62 @@ final class Tags
     }
 
     /**
-     * Where the children of an empty container go in its markup: before its last closing tag.
+     * Where the children of an empty container go in its markup.
      *
-     * Null when the markup has no closing tag.
+     * Inside the last empty element, which is the one the editor leaves for the inner blocks of
+     * a cover, a media-text or a legacy group; otherwise, as in a details block whose summary
+     * holds text, before the last closing tag. Null when the markup has no closing tag.
      */
     public static function emptyPosition(string $html): ?int
     {
-        // The processor knows where each tag starts but only exposes it through a bookmark, which
+        // The processor knows where each token lies but only exposes it through a bookmark, which
         // subclasses can read.
         $processor = new class ($html) extends WP_HTML_Tag_Processor {
-            public function tokenOffset(): ?int
+            /**
+             * @return array{int, int}|null Start offset and length of the current token.
+             */
+            public function tokenSpan(): ?array
             {
-                return $this->set_bookmark('token') ? $this->bookmarks['token']->start : null;
+                return $this->set_bookmark('token')
+                    ? [$this->bookmarks['token']->start, $this->bookmarks['token']->length]
+                    : null;
             }
         };
 
-        $position = null;
-        while ($processor->next_tag(['tag_closers' => 'visit'])) {
-            if ($processor->is_tag_closer()) {
-                $position = $processor->tokenOffset();
+        $lastCloser = null;
+        $lastEmpty = null;
+        // The last opener, with the offset right after it, as long as only whitespace followed.
+        $opener = null;
+        while ($processor->next_token()) {
+            $type = $processor->get_token_type();
+            if ($type === '#text') {
+                if (\trim($processor->get_modifiable_text()) !== '') {
+                    $opener = null;
+                }
+                continue;
             }
+
+            if ($type !== '#tag') {
+                $opener = null;
+                continue;
+            }
+
+            $span = $processor->tokenSpan();
+            $tagName = \strtolower((string) $processor->get_tag());
+            if ($processor->is_tag_closer()) {
+                $lastCloser = $span[0] ?? $lastCloser;
+                if ($opener !== null && $opener[0] === $tagName) {
+                    $lastEmpty = $opener[1];
+                }
+                $opener = null;
+                continue;
+            }
+
+            $opener = $span !== null && !$processor->has_self_closing_flag() && !\in_array($tagName, self::VOID_ELEMENTS, true)
+                ? [$tagName, $span[0] + $span[1]]
+                : null;
         }
 
-        return $position;
+        return $lastEmpty ?? $lastCloser;
     }
 }
