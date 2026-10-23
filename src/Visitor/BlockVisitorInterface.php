@@ -26,9 +26,11 @@ interface BlockVisitorInterface
      * returned here: returning `BlockNode::wrap($block, ...)` would visit `$block` again
      * and wrap it forever, wrap from `leave()` instead.
      *
-     * @return BlockNode|Traversal|null `null` to do nothing, a node to replace the current one
-     *                                  (its children are then visited), `Traversal::SkipChildren`
-     *                                  or `Traversal::Stop`.
+     * @return BlockNode|Traversal::SkipChildren|Traversal::Stop|null `null` to do nothing, a node to
+     *                                                              replace the current one (its
+     *                                                              children are then visited),
+     *                                                              `Traversal::SkipChildren` or
+     *                                                              `Traversal::Stop`.
      */
     public function enter(BlockNode $block): BlockNode|Traversal|null;
 
@@ -37,10 +39,13 @@ interface BlockVisitorInterface
      *
      * Children added to the node here will not be visited.
      *
-     * @return BlockNode|list<BlockNode>|Traversal|null `null` to do nothing, a node to replace the
-     *                                                  current one, a list of nodes to replace it by
-     *                                                  zero or more siblings, `Traversal::Remove` or
-     *                                                  `Traversal::Stop`.
+     * @return BlockNode|list<BlockNode>|Traversal::Remove|Traversal::Stop|null `null` to do nothing, a
+     *                                                                        node to replace the
+     *                                                                        current one, a list of
+     *                                                                        nodes to replace it by
+     *                                                                        zero or more siblings,
+     *                                                                        `Traversal::Remove` or
+     *                                                                        `Traversal::Stop`.
      */
     public function leave(BlockNode $block): BlockNode|array|Traversal|null;
 }
