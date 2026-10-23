@@ -12,6 +12,7 @@ use n5s\BlockVisitor\Tests\Support\RecordingVisitor;
 use n5s\BlockVisitor\Tests\TestCase;
 use n5s\BlockVisitor\Visitor\AbstractBlockVisitor;
 use n5s\BlockVisitor\Visitor\Traversal;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 final class BlockTraverserTest extends TestCase
@@ -874,6 +875,94 @@ HTML
         $this->assertCount(20000, $root->getInnerBlocks());
         // Linear takes a few hundredths of a second here; the quadratic version took seconds.
         $this->assertLessThan(1.0, $elapsed);
+    }
+
+    #[DataProvider('pendingWrapperHijackProvider')]
+    public function testANodeWrappedAndReturnedFromLeaveStaysProtectedUntilTheSwap(Closure $hijack, string $message): void
+    {
+        $root = BlockNode::createRoot(self::GROUP);
+        $group = $root->getInnerBlocks()[0];
+        $a = $group->getInnerBlocks()[0];
+        $visitor = $this->logger(
+            enter: static fn (BlockNode $block): ?BlockNode => \str_contains($block->getInnerHTML(), '<p>B</p>') ? $hijack($block, $a) : null,
+            leave: static fn (BlockNode $block): ?BlockNode => \str_contains($block->getInnerHTML(), '<p>A</p>') ? BlockNode::wrap($block, 'core/cover') : null,
+        );
+
+        try {
+            (new BlockTraverser($visitor))->traverse($root);
+            $this->fail('Taking the wrapped node should be rejected');
+        } catch (LogicException $exception) {
+            $this->assertStringContainsString($message, $exception->getMessage());
+        }
+
+        $this->assertSame([$a, $group->getInnerBlocks()[1]], $group->getInnerBlocks());
+        $this->assertSame($group, $a->getParent());
+        $this->assertSame(self::GROUP, (string) $root);
+    }
+
+    /**
+     * @return \Iterator<string, array{Closure(BlockNode, BlockNode): ?BlockNode, string}>
+     */
+    public static function pendingWrapperHijackProvider(): \Iterator
+    {
+        yield 'listed in a new node' => [static function (BlockNode $current, BlockNode $wrapped): ?BlockNode {
+            new BlockNode('core/group', [], [$wrapped]);
+
+            return null;
+        }, 'while a visitor is visiting',];
+        yield 'appended to the current node' => [static function (BlockNode $current, BlockNode $wrapped): ?BlockNode {
+            $current->appendInnerBlock($wrapped);
+
+            return null;
+        }, 'while a visitor is visiting',];
+        yield 'returned from enter()' => [static fn (BlockNode $current, BlockNode $wrapped): BlockNode => $wrapped, 'cannot return a sibling'];
+    }
+
+    public function testAWrapperBuiltFromAHookAndNotReturnedChangesNothing(): void
+    {
+        $root = BlockNode::createRoot(self::GROUP);
+        $group = $root->getInnerBlocks()[0];
+        $a = $group->getInnerBlocks()[0];
+        $orphan = null;
+        $visitor = $this->logger(leave: static function (BlockNode $block) use ($a, &$orphan): null {
+            if (\str_contains($block->getInnerHTML(), '<p>B</p>')) {
+                $orphan = BlockNode::wrap($a, 'core/cover');
+            }
+
+            return null;
+        });
+
+        (new BlockTraverser($visitor))->traverse($root);
+
+        $this->assertSame($group, $a->getParent());
+        $this->assertSame(self::GROUP, (string) $root);
+        $this->assertInstanceOf(BlockNode::class, $orphan);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('is still listed under');
+
+        (new BlockNode('core/group'))->appendInnerBlock($orphan);
+    }
+
+    public function testANodeCanBeWrappedTwiceFromLeave(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->');
+        $a = $root->getInnerBlocks()[0];
+        $visitor = $this->logger(leave: static fn (BlockNode $block): ?BlockNode => $block->getBlockName() === 'core/paragraph'
+            ? BlockNode::wrap(BlockNode::wrap($block, 'core/group', [], '<div>', '</div>'), 'core/cover', [], '<section>', '</section>')
+            : null);
+
+        (new BlockTraverser($visitor))->traverse($root);
+
+        $cover = $root->getInnerBlocks()[0];
+        $group = $cover->getInnerBlocks()[0];
+        $this->assertSame('core/cover', $cover->getBlockName());
+        $this->assertSame('core/group', $group->getBlockName());
+        $this->assertSame([$a], $group->getInnerBlocks());
+        $this->assertSame($group, $a->getParent());
+        $this->assertSame($cover, $group->getParent());
+        $this->assertSame($root, $cover->getParent());
+        $this->assertSame('<!-- wp:cover --><section><!-- wp:group --><div><!-- wp:paragraph --><p>A</p><!-- /wp:paragraph --></div><!-- /wp:group --></section><!-- /wp:cover -->', (string) $root);
     }
 
     public function testTakingASiblingIntoANewNodeIsRejected(): void

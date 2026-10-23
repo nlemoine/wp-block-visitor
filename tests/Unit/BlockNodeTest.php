@@ -731,14 +731,14 @@ final class BlockNodeTest extends TestCase
         $wrapper = BlockNode::wrap($child, 'core/cover');
 
         $this->assertSame([$child], $wrapper->getInnerBlocks());
-        $this->assertSame($wrapper, $child->getParent());
-        $this->assertSame(0, $group->indexOf($child), 'the child is still listed by its former parent until the traverser swaps it');
+        $this->assertSame($group, $child->getParent(), 'the child keeps its parent until the traverser swaps the wrapper in');
+        $this->assertSame(0, $group->indexOf($child), 'the child is still listed by its parent until the traverser swaps the wrapper in');
 
         Internals::unlockChildren($group);
         $group->replaceInnerBlockAt(0, $wrapper);
 
         $this->assertSame($group, $wrapper->getParent());
-        $this->assertSame($wrapper, $child->getParent(), 'replacing the child by its wrapper must not detach it from the wrapper');
+        $this->assertSame($wrapper, $child->getParent(), 'replacing the child by its wrapper hands it over to the wrapper');
     }
 
     public function testAWrapperCanBeMovedToAnotherParentWithoutDuplicatingTheChild(): void

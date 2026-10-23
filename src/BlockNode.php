@@ -189,9 +189,9 @@ final class BlockNode implements Stringable
      * Creates a new block wrapping the given node, in that node's place.
      *
      * Outside a traversal, the wrapper takes the child's place in its parent right away. From a
-     * visitor, the children of the parent are locked, so the child stays listed there until the
-     * wrapper is returned from `leave()`, where the traverser makes the swap: wrap only the node
-     * being left.
+     * visitor, the children of the parent are locked, so the child stays listed there, with that
+     * parent, until the wrapper is returned from `leave()`, where the traverser makes the swap:
+     * wrap only the node being left. Until then the wrapper cannot be used anywhere else.
      *
      * @param array<string, mixed> $attrs
      * @param string $before HTML emitted before the wrapped block, e.g. `<div class="wp-block-group">`.
@@ -221,14 +221,15 @@ final class BlockNode implements Stringable
         $wrapper->innerBlocks = [$child];
         $wrapper->innerContent = $innerContent;
 
+        // Under a lock, the child keeps its parent and stays listed there until the traverser
+        // swaps the wrapper in: until then, every check still sees it where it is.
         $parent = $child->parent;
-        if ($parent instanceof self && $parent->childrenLocks === 0) {
-            $index = $parent->indexOf($child);
-            if ($index !== null) {
-                $parent->replaceInnerBlockAt($index, $wrapper);
-            }
+        $index = $parent instanceof self ? $parent->indexOf($child) : null;
+        if (!$parent instanceof self || $index === null) {
+            $child->parent = $wrapper;
+        } elseif ($parent->childrenLocks === 0) {
+            $parent->replaceInnerBlockAt($index, $wrapper);
         }
-        $child->parent = $wrapper;
 
         return $wrapper;
     }
@@ -351,18 +352,18 @@ final class BlockNode implements Stringable
         }
 
         $replacements = \array_values($replacements);
+        $old = $this->innerBlocks[$index];
         $this->assertDistinct($replacements);
         foreach ($replacements as $node) {
-            $this->assertAdoptable($node);
+            $this->assertAdoptable($node, $old);
         }
 
-        $old = $this->innerBlocks[$index];
         $separator = Placeholders::separator($this->innerContent, $this->isRoot());
         $index = $this->removeOwnChildren($replacements, $index, $old);
         $this->spliceChild($index, $replacements, $separator);
 
         if (!\in_array($old, $replacements, true)) {
-            $this->detach($old);
+            $this->handOver($old, $replacements);
         }
         $this->adoptAll($replacements);
 
@@ -405,7 +406,7 @@ final class BlockNode implements Stringable
 
             \array_push($this->innerBlocks, ...$replacements[$index]);
             if (!\in_array($node, $replacements[$index], true)) {
-                $this->detach($node);
+                $this->handOver($node, $replacements[$index]);
             }
         }
 
@@ -1026,15 +1027,21 @@ final class BlockNode implements Stringable
 
     /**
      * Rejects a child that would close a cycle, that is one whose subtree already holds this
-     * node, or that a visitor's lock keeps in its current parent.
+     * node, that holds a node still listed elsewhere, or that a visitor's lock keeps in its
+     * current parent.
      *
      * Called before any mutation so that a refused node never leaves the tree half-changed. The
-     * cycle check walks children rather than parents because a parent pointer only records one
+     * walk goes through children rather than parents because a parent pointer only records one
      * of the lists a node may sit in, while the children lists are what gets serialized.
+     *
+     * @param BlockNode|null $replacing The child of this node the given node takes the place of. A
+     *                                  wrapper built from a hook holds it while it is still listed
+     *                                  here, which is the one case where a held node may point
+     *                                  elsewhere.
      *
      * @throws LogicException
      */
-    private function assertAdoptable(BlockNode $node): void
+    private function assertAdoptable(BlockNode $node, ?BlockNode $replacing = null): void
     {
         $this->assertNotRoot($node->blockName);
 
@@ -1052,6 +1059,17 @@ final class BlockNode implements Stringable
             }
 
             foreach ($current->innerBlocks as $child) {
+                if ($child->parent !== $current && $child !== $replacing) {
+                    // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+                    throw new LogicException(\sprintf(
+                        'Cannot add block "%s" to "%s": it holds "%s", which is still listed under "%s". Wrap only the node being left, and return the wrapper from leave().',
+                        $node->getBlockName() ?? '(freeform)',
+                        $this->getBlockName() ?? '(freeform)',
+                        $child->getBlockName() ?? '(freeform)',
+                        $child->parent?->getBlockName() ?? '(freeform)',
+                    ));
+                    // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+                }
                 $pending[] = $child;
             }
         }
@@ -1185,20 +1203,6 @@ final class BlockNode implements Stringable
      */
     private function assertReplacements(array $replacements): array
     {
-        // A child wrapped from a hook points to its wrapper while still listed here; unless the
-        // wrapper replaces it, both would serialize it.
-        foreach ($this->innerBlocks as $index => $child) {
-            if ($child->parent !== $this && !\array_key_exists($index, $replacements)) {
-                // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
-                throw new LogicException(\sprintf(
-                    'Child %d of "%s" is still listed but no longer belongs to it: wrap only the node being left, and return the wrapper from leave().',
-                    $index,
-                    $this->getBlockName() ?? '(freeform)',
-                ));
-                // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
-            }
-        }
-
         $count = \count($this->innerBlocks);
         $adopted = [];
         foreach ($replacements as $index => $nodes) {
@@ -1216,7 +1220,7 @@ final class BlockNode implements Stringable
                     ));
                     // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 }
-                $this->assertAdoptable($node);
+                $this->assertAdoptable($node, $this->innerBlocks[$index]);
                 $adopted[] = $node;
             }
         }
@@ -1258,16 +1262,36 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Forgets the parent of a node that was taken out of the children.
-     *
-     * A node is listed once at most, so it is enough to check that it still points here: a
-     * child handed to `wrap()` points to its wrapper and must keep it.
+     * Forgets the parent of a node that was taken out of the children, when it still points here.
      */
     private function detach(BlockNode $node): void
     {
         if ($node->parent === $this) {
             $node->parent = null;
         }
+    }
+
+    /**
+     * Gives a replaced child to the replacement that holds it, a wrapper built from a hook, or
+     * detaches it when none does.
+     *
+     * @param list<BlockNode> $replacements
+     */
+    private function handOver(BlockNode $old, array $replacements): void
+    {
+        $pending = $replacements;
+        while ($pending !== []) {
+            $current = \array_pop($pending);
+            if (\in_array($old, $current->innerBlocks, true)) {
+                $old->parent = $current;
+
+                return;
+            }
+
+            \array_push($pending, ...$current->innerBlocks);
+        }
+
+        $this->detach($old);
     }
 
     /**
