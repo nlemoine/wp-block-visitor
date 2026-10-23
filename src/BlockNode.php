@@ -111,6 +111,7 @@ final class BlockNode implements Stringable
             }
 
             $node = self::create($block);
+            $this->assertNotRoot($node);
             $node->parent = $this;
             $this->innerBlocks[] = $node;
         }
@@ -223,6 +224,7 @@ final class BlockNode implements Stringable
         // Filled by hand: the constructor would take the child away from its parent, which the
         // lock a visitor holds on that parent forbids.
         $wrapper = new self($blockName, $attrs);
+        $wrapper->assertNotRoot($child);
         $wrapper->innerBlocks = [$child];
         $wrapper->innerContent = $innerContent;
 
@@ -935,6 +937,8 @@ final class BlockNode implements Stringable
      */
     private function assertAdoptable(BlockNode $node): void
     {
+        $this->assertNotRoot($node);
+
         $pending = [$node];
         while ($pending !== []) {
             $current = \array_pop($pending);
@@ -964,6 +968,26 @@ final class BlockNode implements Stringable
             ));
             // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
+    }
+
+    /**
+     * A root serializes without delimiters and resets the depth of its children, so nesting one
+     * would write its blocks straight into this node and reparse as that many children.
+     *
+     * @throws LogicException
+     */
+    private function assertNotRoot(BlockNode $node): void
+    {
+        if (!$node->isRoot()) {
+            return;
+        }
+
+        // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+        throw new LogicException(\sprintf(
+            'Cannot add a root node to "%s": a root has no delimiters, use its inner blocks instead.',
+            $this->getBlockName() ?? '(freeform)',
+        ));
+        // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
     }
 
     /**

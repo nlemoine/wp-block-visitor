@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace n5s\BlockVisitor\Tests\Unit;
 
+use Closure;
 use InvalidArgumentException;
 use LogicException;
 use n5s\BlockVisitor\BlockNode;
@@ -1057,6 +1058,26 @@ final class BlockNodeTest extends TestCase
         $node->wrapInnerContent('no tags here');
 
         $this->assertSame(['<p>x</p>'], $node->getInnerContent());
+    }
+
+    #[DataProvider('rootAsChildProvider')]
+    public function testARootCannotBecomeAChild(Closure $attempt): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('use its inner blocks instead');
+
+        $attempt(BlockNode::createRoot('<!-- wp:paragraph /-->'));
+    }
+
+    /**
+     * @return \Iterator<string, array{Closure(BlockNode): mixed}>
+     */
+    public static function rootAsChildProvider(): \Iterator
+    {
+        yield 'append' => [static fn (BlockNode $root): BlockNode => (new BlockNode('core/group'))->appendInnerBlock($root)];
+        yield 'constructor' => [static fn (BlockNode $root): BlockNode => new BlockNode('core/group', [], [$root])];
+        yield 'parsed array' => [static fn (): BlockNode => BlockNode::create(['blockName' => 'core/group', 'innerBlocks' => [['blockName' => '@root']]])];
+        yield 'wrap' => [static fn (BlockNode $root): BlockNode => BlockNode::wrap($root, 'core/group')];
     }
 
     public function testRenamingARootMakesItAnOrdinaryBlock(): void
