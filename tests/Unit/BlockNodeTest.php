@@ -1404,6 +1404,16 @@ final class BlockNodeTest extends TestCase
         $node->removeInnerBlockAt(0);
     }
 
+    public function testALockedNodeAcceptsAnEmptyBatch(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
+        $node->lockChildren();
+
+        $node->applyReplacements([])->appendInnerBlocks([])->prependInnerBlocks([]);
+
+        $this->assertCount(1, $node->getInnerBlocks());
+    }
+
     /**
      * @param array<int, int> $plan Index of the child => how many nodes replace it.
      * @param list<string|null> $content

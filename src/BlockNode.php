@@ -365,11 +365,12 @@ final class BlockNode implements Stringable
      */
     public function applyReplacements(array $replacements): self
     {
-        $this->assertUnlocked();
+        // Before the lock check: a nested pass over a locked ancestor has nothing to apply.
         if ($replacements === []) {
             return $this;
         }
 
+        $this->assertUnlocked();
         $adopted = $this->assertReplacements($replacements);
         $counts = \array_map(\count(...), $replacements);
         $this->innerContent = Placeholders::replaceMany($this->innerContent, $counts, \count($this->innerBlocks), $this->isRoot());
@@ -402,15 +403,15 @@ final class BlockNode implements Stringable
      */
     public function insertInnerBlockAt(int $index, BlockNode ...$nodes): self
     {
+        $nodes = \array_values($nodes);
+        if ($nodes === []) {
+            return $this;
+        }
+
         $this->assertUnlocked();
         $count = \count($this->innerBlocks);
         if ($index < 0 || $index > $count) {
             throw new OutOfRangeException(\sprintf('Cannot insert at index %d, valid indexes are 0 to %d.', $index, $count)); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-        }
-
-        $nodes = \array_values($nodes);
-        if ($nodes === []) {
-            return $this;
         }
 
         $this->assertDistinct($nodes);

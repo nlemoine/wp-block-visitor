@@ -833,6 +833,23 @@ HTML
         (new BlockTraverser($outer))->traverse(self::TWO_TOP_LEVEL);
     }
 
+    public function testAReadOnlyNestedTraversalOfAnAncestorCompletes(): void
+    {
+        $inner = $this->logger();
+        $outer = $this->logger(enter: static function (BlockNode $block) use ($inner): null {
+            $root = $block->getParent();
+            if ($root?->isRoot() === true && $block->getBlockName() === 'core/group') {
+                (new BlockTraverser($inner))->traverse($root);
+            }
+
+            return null;
+        });
+
+        (new BlockTraverser($outer))->traverse(self::TWO_TOP_LEVEL);
+
+        $this->assertContains('leave core/heading', $inner->log);
+    }
+
     public function testANestedTraversalOfTheCurrentNodeCanChangeIt(): void
     {
         $inner = $this->logger(leave: static fn (BlockNode $block): ?Traversal => \str_contains($block->getInnerHTML(), '<p>A</p>') ? Traversal::Remove : null);
