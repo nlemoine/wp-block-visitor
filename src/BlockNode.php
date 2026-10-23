@@ -7,10 +7,10 @@ namespace n5s\BlockVisitor;
 use InvalidArgumentException;
 use LogicException;
 use n5s\BlockVisitor\Internal\Placeholders;
+use n5s\BlockVisitor\Internal\Tags;
 use OutOfRangeException;
 use RuntimeException;
 use Stringable;
-use WP_HTML_Tag_Processor;
 
 /**
  * A node in a tree of parsed WordPress blocks.
@@ -50,15 +50,6 @@ final class BlockNode implements Stringable
      * set the WordPress block parser accepts.
      */
     private const string BLOCK_NAME_PATTERN = '#^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?\z#';
-
-    /**
-     * HTML elements that never have a closing tag.
-     *
-     * @see https://html.spec.whatwg.org/multipage/syntax.html#void-elements
-     */
-    private const array VOID_ELEMENTS = [
-        'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr',
-    ];
 
     /**
      * @var list<BlockNode>
@@ -577,28 +568,8 @@ final class BlockNode implements Stringable
      */
     public function wrapInnerContent(string $html): self
     {
-        $processor = new WP_HTML_Tag_Processor($html);
-        $open = [];
-        $found = false;
-        while ($processor->next_tag(['tag_closers' => 'visit'])) {
-            $tagName = \strtolower((string) $processor->get_tag());
-
-            if ($processor->is_tag_closer()) {
-                // A closer also ends the elements still open inside the one it closes.
-                $index = \array_search($tagName, \array_reverse($open, true), true);
-                if ($index !== false) {
-                    \array_splice($open, $index);
-                }
-                continue;
-            }
-
-            $found = true;
-            if (!$processor->has_self_closing_flag() && !\in_array($tagName, self::VOID_ELEMENTS, true)) {
-                $open[] = $tagName;
-            }
-        }
-
-        if (!$found) {
+        $open = Tags::openElements($html);
+        if ($open === null) {
             return $this;
         }
 
@@ -1160,33 +1131,9 @@ final class BlockNode implements Stringable
         }
 
         $chunk = (string) $this->innerContent[0];
-        $position = $this->lastClosingTagPosition($chunk);
+        $position = Tags::emptyPosition($chunk);
         if ($position !== null && $position > 0) {
             $this->innerContent = [\substr($chunk, 0, $position), \substr($chunk, $position)];
         }
-    }
-
-    /**
-     * Offset of the last closing tag of a chunk, or null when it has none.
-     */
-    private function lastClosingTagPosition(string $html): ?int
-    {
-        // The processor knows where each tag starts but only exposes it through a bookmark, which
-        // subclasses can read. Searching the text instead would also match inside comments.
-        $processor = new class ($html) extends WP_HTML_Tag_Processor {
-            public function tokenOffset(): ?int
-            {
-                return $this->set_bookmark('token') ? $this->bookmarks['token']->start : null;
-            }
-        };
-
-        $position = null;
-        while ($processor->next_tag(['tag_closers' => 'visit'])) {
-            if ($processor->is_tag_closer()) {
-                $position = $processor->tokenOffset();
-            }
-        }
-
-        return $position;
     }
 }
