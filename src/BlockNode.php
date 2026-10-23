@@ -104,7 +104,7 @@ final class BlockNode implements Stringable
             }
 
             $node = self::create($block);
-            $this->assertNotRoot($node);
+            $this->assertNotRoot($node->blockName);
             $node->parent = $this;
             $this->innerBlocks[] = $node;
         }
@@ -217,7 +217,7 @@ final class BlockNode implements Stringable
         // Filled by hand: the constructor would take the child away from its parent, which the
         // lock a visitor holds on that parent forbids.
         $wrapper = new self($blockName, $attrs);
-        $wrapper->assertNotRoot($child);
+        $wrapper->assertNotRoot($child->blockName);
         $wrapper->innerBlocks = [$child];
         $wrapper->innerContent = $innerContent;
 
@@ -470,7 +470,10 @@ final class BlockNode implements Stringable
      */
     public function appendInnerBlocks(array $blocks): self
     {
-        return $this->insertInnerBlockAt(\count($this->innerBlocks), ...$this->toNodes($blocks));
+        // Built first: an own child nested in one of the arrays leaves the list, which shortens it.
+        $nodes = $this->toNodes($blocks);
+
+        return $this->insertInnerBlockAt(\count($this->innerBlocks), ...$nodes);
     }
 
     public function prependInnerBlock(BlockNode $block): self
@@ -498,6 +501,8 @@ final class BlockNode implements Stringable
     public function setInnerBlocks(array $innerBlocks): self
     {
         $this->assertUnlocked();
+        // Counted before toNodes(), which takes an own child nested in a parsed array out of the list.
+        $before = \count($this->innerBlocks);
         $new = $this->toNodes($innerBlocks);
         $this->assertDistinct($new);
         foreach ($new as $node) {
@@ -506,8 +511,8 @@ final class BlockNode implements Stringable
 
         $old = $this->innerBlocks;
 
-        if (\count($new) !== \count($old)) {
-            if ($old === []) {
+        if (\count($new) !== $before || \count($old) !== $before) {
+            if ($before === 0) {
                 $this->splitEmptyContainer();
             }
             Placeholders::respan($this->innerContent, \count($new), $this->isRoot());
@@ -824,11 +829,11 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Builds the nodes of a list mixing parsed arrays and nodes, checking every node first.
+     * Builds the nodes of a list mixing parsed arrays and nodes, checking everything first.
      *
-     * A node nested in a parsed array is adopted by the node built from that array, so each one
-     * is checked against this node before any array is built: a refused one would otherwise be
-     * left inside a node that is thrown away.
+     * A node nested in a parsed array is adopted by the node built from that array, so every
+     * array and every node is checked before any array is built: a refusal coming later would
+     * otherwise leave a node moved into one that is thrown away.
      *
      * @param list<array<string, mixed>|BlockNode> $blocks
      * @return list<BlockNode>
@@ -840,7 +845,10 @@ final class BlockNode implements Stringable
         }
 
         $this->assertUnlocked();
-        foreach (self::givenNodes($blocks) as $node) {
+        $this->assertParsedBlocks($blocks);
+        $given = self::givenNodes($blocks);
+        $this->assertDistinct($given);
+        foreach ($given as $node) {
             $this->assertAdoptable($node);
         }
 
@@ -848,6 +856,34 @@ final class BlockNode implements Stringable
             static fn (array|BlockNode $block): BlockNode => $block instanceof BlockNode ? $block : self::create($block),
             $blocks
         ));
+    }
+
+    /**
+     * Checks what the constructor would reject in the parsed arrays of a list, at any depth,
+     * before any node is built from them.
+     *
+     * @param array<int|string, mixed> $blocks
+     *
+     * @throws InvalidArgumentException|LogicException
+     */
+    private function assertParsedBlocks(array $blocks): void
+    {
+        foreach ($blocks as $block) {
+            if (!\is_array($block)) {
+                continue;
+            }
+
+            $blockName = $block['blockName'] ?? null;
+            $blockName = \is_string($blockName) ? $blockName : null;
+            $this->assertNotRoot($blockName);
+            $this->assertBlockName($blockName);
+            if (isset($block['innerContent']) && \is_array($block['innerContent'])) {
+                $this->assertChunks($block['innerContent']);
+            }
+            if (isset($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+                $this->assertParsedBlocks($block['innerBlocks']);
+            }
+        }
     }
 
     /**
@@ -970,7 +1006,7 @@ final class BlockNode implements Stringable
      */
     private function assertAdoptable(BlockNode $node): void
     {
-        $this->assertNotRoot($node);
+        $this->assertNotRoot($node->blockName);
 
         $pending = [$node];
         while ($pending !== []) {
@@ -1032,9 +1068,9 @@ final class BlockNode implements Stringable
      *
      * @throws LogicException
      */
-    private function assertNotRoot(BlockNode $node): void
+    private function assertNotRoot(?string $blockName): void
     {
-        if (!$node->isRoot()) {
+        if ($blockName !== self::ROOT_BLOCK_NAME) {
             return;
         }
 

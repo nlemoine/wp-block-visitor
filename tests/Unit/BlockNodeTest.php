@@ -1887,6 +1887,78 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<div class="wp-block-columns">', null, null, '</div>'], $columns->getInnerContent());
     }
 
+    #[DataProvider('invalidSiblingArrayProvider')]
+    public function testAnInvalidParsedArrayIsRejectedBeforeAnyNestedNodeMoves(array $invalid, string $exception): void
+    {
+        $own = new BlockNode('core/group', [], [new BlockNode('core/paragraph')]);
+        $paragraph = $own->getInnerBlocks()[0];
+        $target = new BlockNode('core/group', [], [], ['<div></div>']);
+
+        try {
+            $target->appendInnerBlocks([['blockName' => 'core/quote', 'innerBlocks' => [$paragraph]], $invalid]);
+            $this->fail('The invalid array should be rejected');
+        } catch (\Throwable $caught) {
+            $this->assertInstanceOf($exception, $caught);
+        }
+
+        $this->assertSame([$paragraph], $own->getInnerBlocks());
+        $this->assertSame($own, $paragraph->getParent());
+        $this->assertSame([], $target->getInnerBlocks());
+    }
+
+    /**
+     * @return \Iterator<string, array{array<string, mixed>, class-string<\Throwable>}>
+     */
+    public static function invalidSiblingArrayProvider(): \Iterator
+    {
+        yield 'invalid name' => [['blockName' => 'Not Valid'], InvalidArgumentException::class];
+        yield 'invalid chunk' => [['blockName' => 'core/paragraph', 'innerContent' => [5]], InvalidArgumentException::class];
+        yield 'nested root' => [['blockName' => 'core/group', 'innerBlocks' => [['blockName' => '@root']]], LogicException::class];
+    }
+
+    public function testANodeListedTwiceAcrossParsedArraysIsRejectedBeforeAnythingMoves(): void
+    {
+        $own = new BlockNode('core/group', [], [new BlockNode('core/paragraph')]);
+        $paragraph = $own->getInnerBlocks()[0];
+        $target = new BlockNode('core/group', [], [], ['<div></div>']);
+
+        try {
+            $target->appendInnerBlocks([$paragraph, ['blockName' => 'core/quote', 'innerBlocks' => [$paragraph]]]);
+            $this->fail('A node listed twice should be rejected');
+        } catch (LogicException $caught) {
+            $this->assertStringContainsString('twice', $caught->getMessage());
+        }
+
+        $this->assertSame([$paragraph], $own->getInnerBlocks());
+        $this->assertSame([], $target->getInnerBlocks());
+    }
+
+    public function testAnOwnChildNestedInAParsedArrayCanBeAppended(): void
+    {
+        $group = BlockNode::createFromString('<!-- wp:group --><div><!-- wp:paragraph --><p>a</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>b</p><!-- /wp:paragraph --></div><!-- /wp:group -->');
+        $a = $group->getInnerBlocks()[0];
+
+        $group->appendInnerBlocks([['blockName' => 'core/quote', 'innerContent' => ['<blockquote>', null, '</blockquote>'], 'innerBlocks' => [$a]]]);
+
+        $this->assertCount(2, $group->getInnerBlocks());
+        $this->assertSame('core/quote', $group->getInnerBlocks()[1]->getBlockName());
+        $this->assertSame([$a], $group->getInnerBlocks()[1]->getInnerBlocks());
+        $this->assertSame(1, \substr_count((string) $group, '<p>a</p>'));
+    }
+
+    public function testSetInnerBlocksKeepsTheInvariantsWhenAnOwnChildIsNestedInAParsedArray(): void
+    {
+        $group = new BlockNode('core/group', [], [new BlockNode('core/a'), new BlockNode('core/b')], ['<div>', null, '<hr/>', null, '</div>']);
+        [$a, $b] = $group->getInnerBlocks();
+
+        $group->setInnerBlocks([['blockName' => 'core/quote', 'innerBlocks' => [$a]], $b]);
+
+        $this->assertCount(2, $group->getInnerBlocks());
+        $this->assertCount(2, \array_keys($group->getInnerContent(), null, true));
+        $this->assertSame([$a], $group->getInnerBlocks()[0]->getInnerBlocks());
+        $this->assertSame($group, $b->getParent());
+    }
+
     public function testMovingManyChildrenToAnotherParentStaysLinear(): void
     {
         $from = $this->wideGroup(20000);
