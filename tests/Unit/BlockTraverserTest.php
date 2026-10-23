@@ -781,6 +781,50 @@ HTML
         $this->assertFalse($reachedAfterTheCall);
     }
 
+    public function testARefusedMoveLeavesTheTreeUntouched(): void
+    {
+        $root = BlockNode::createRoot(self::TWO_TOP_LEVEL);
+        $heading = $root->getInnerBlocks()[2];
+        $caught = null;
+        $visitor = $this->logger(enter: static function (BlockNode $block) use ($heading, &$caught): null {
+            if ($block->getBlockName() === 'core/group') {
+                try {
+                    $block->appendInnerBlock($heading);
+                } catch (LogicException $exception) {
+                    $caught = $exception;
+                }
+            }
+
+            return null;
+        });
+
+        (new BlockTraverser($visitor))->traverse($root);
+
+        $this->assertInstanceOf(LogicException::class, $caught);
+        $this->assertCount(2, $root->getInnerBlocks()[0]->getInnerBlocks());
+        $this->assertSame($root, $heading->getParent());
+        $this->assertSame(self::TWO_TOP_LEVEL, (string) $root);
+    }
+
+    public function testReturningAChildOfALockedAncestorIsRejectedBeforeAnythingChanges(): void
+    {
+        $root = BlockNode::createRoot(self::TWO_TOP_LEVEL);
+        $group = $root->getInnerBlocks()[0];
+        $heading = $root->getInnerBlocks()[2];
+        $visitor = $this->logger(leave: static fn (BlockNode $block): ?BlockNode => \str_contains($block->getInnerHTML(), '<p>A</p>') ? $heading : null);
+
+        try {
+            (new BlockTraverser($visitor))->traverse($root);
+            $this->fail('Taking a child from a locked ancestor should be rejected');
+        } catch (LogicException $exception) {
+            $this->assertStringContainsString('while a visitor is visiting', $exception->getMessage());
+        }
+
+        $this->assertSame('<p>A</p>', \trim($group->getInnerBlocks()[0]->getInnerHTML()));
+        $this->assertSame($root, $heading->getParent());
+        $this->assertSame(self::TWO_TOP_LEVEL, (string) $root);
+    }
+
     public function testTakingASiblingIntoANewNodeIsRejected(): void
     {
         $visitor = $this->logger(leave: static function (BlockNode $block): ?BlockNode {
@@ -793,7 +837,7 @@ HTML
         });
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Cannot change the children of "core/group"');
+        $this->expectExceptionMessage('Cannot move block "core/paragraph" out of "core/group"');
 
         (new BlockTraverser($visitor))->traverse(self::GROUP);
     }

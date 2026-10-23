@@ -119,7 +119,11 @@ final class BlockNode implements Stringable
         if ($given !== []) {
             $this->assertDistinct($given);
 
-            // No cycle check needed: a node under construction cannot be anyone's descendant yet.
+            // A node under construction cannot be anyone's descendant yet, so this only checks
+            // the lock on each node's current parent, for all of them before any is taken.
+            foreach ($given as $node) {
+                $this->assertAdoptable($node);
+            }
             foreach ($given as $node) {
                 $this->adopt($node);
             }
@@ -831,15 +835,50 @@ final class BlockNode implements Stringable
     }
 
     /**
+     * Builds the nodes of a list mixing parsed arrays and nodes, checking every node first.
+     *
+     * A node nested in a parsed array is adopted by the node built from that array, so each one
+     * is checked against this node before any array is built: a refused one would otherwise be
+     * left inside a node that is thrown away.
+     *
      * @param list<array<string, mixed>|BlockNode> $blocks
      * @return list<BlockNode>
      */
     private function toNodes(array $blocks): array
     {
+        if ($blocks === []) {
+            return [];
+        }
+
+        $this->assertUnlocked();
+        foreach (self::givenNodes($blocks) as $node) {
+            $this->assertAdoptable($node);
+        }
+
         return \array_values(\array_map(
             static fn (array|BlockNode $block): BlockNode => $block instanceof BlockNode ? $block : self::create($block),
             $blocks
         ));
+    }
+
+    /**
+     * The nodes passed as such in a list of parsed arrays and nodes, at any depth.
+     *
+     * @param array<int|string, mixed> $blocks
+     * @return list<BlockNode>
+     */
+    private static function givenNodes(array $blocks): array
+    {
+        $given = [];
+        foreach ($blocks as $block) {
+            if ($block instanceof self) {
+                $given[] = $block;
+            } elseif (\is_array($block) && isset($block['innerBlocks']) && \is_array($block['innerBlocks'])) {
+                \array_push($given, ...self::givenNodes($block['innerBlocks']));
+            }
+        }
+
+        return $given;
     }
 
     /**
@@ -897,11 +936,12 @@ final class BlockNode implements Stringable
     }
 
     /**
-     * Rejects a child that would close a cycle, that is one whose subtree already holds this node.
+     * Rejects a child that would close a cycle, that is one whose subtree already holds this
+     * node, or that a visitor's lock keeps in its current parent.
      *
      * Called before any mutation so that a refused node never leaves the tree half-changed. The
-     * check walks children rather than parents because a parent pointer only records one of the
-     * lists a node may sit in, while the children lists are what gets serialized.
+     * cycle check walks children rather than parents because a parent pointer only records one
+     * of the lists a node may sit in, while the children lists are what gets serialized.
      *
      * @throws LogicException
      */
@@ -923,6 +963,18 @@ final class BlockNode implements Stringable
             foreach ($current->innerBlocks as $child) {
                 $pending[] = $child;
             }
+        }
+
+        // Adopting takes the node from its parent, which is what the lock on that parent forbids.
+        $parent = $node->parent;
+        if ($parent instanceof self && $parent !== $this && $parent->childrenLocks > 0 && $parent->indexOf($node) !== null) {
+            // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped
+            throw new LogicException(\sprintf(
+                'Cannot move block "%s" out of "%s" while a visitor is visiting its children: return a copy or a new node instead.',
+                $node->getBlockName() ?? '(freeform)',
+                $parent->getBlockName() ?? '(freeform)',
+            ));
+            // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
     }
 

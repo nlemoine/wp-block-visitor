@@ -1389,7 +1389,7 @@ final class BlockNodeTest extends TestCase
                 $attempt();
                 $this->fail($name . ' should be rejected');
             } catch (LogicException $exception) {
-                $this->assertStringContainsString('Cannot change the children of "core/group"', $exception->getMessage(), $name);
+                $this->assertStringContainsString('"core/group" while a visitor is visiting', $exception->getMessage(), $name);
             }
         }
 
@@ -1431,6 +1431,62 @@ final class BlockNodeTest extends TestCase
         $this->expectExceptionMessage('are not locked');
 
         $node->unlockChildren();
+    }
+
+    public function testARefusedCycleThroughAParsedArrayLeavesTheTreeUntouched(): void
+    {
+        $root = BlockNode::createRoot('<!-- wp:group --><div><!-- wp:paragraph /--></div><!-- /wp:group -->');
+        $group = $root->getInnerBlocks()[0];
+        $paragraph = $group->getInnerBlocks()[0];
+
+        try {
+            $paragraph->setInnerBlocks([['blockName' => 'core/cover', 'innerBlocks' => [$group]]]);
+            $this->fail('A cycle through a parsed array should be rejected');
+        } catch (LogicException $exception) {
+            $this->assertStringContainsString('that would close a cycle', $exception->getMessage());
+        }
+
+        $this->assertSame([$group], $root->getInnerBlocks());
+        $this->assertSame($root, $group->getParent());
+        $this->assertSame([], $paragraph->getInnerBlocks());
+    }
+
+    public function testTheConstructorTakesNoChildBeforeEveryGivenNodeIsChecked(): void
+    {
+        $free = new BlockNode('core/group', [], [new BlockNode('core/a')]);
+        $locked = new BlockNode('core/group', [], [new BlockNode('core/b')]);
+        $locked->lockChildren();
+
+        try {
+            new BlockNode('core/cover', [], [$free->getInnerBlocks()[0], $locked->getInnerBlocks()[0]]);
+            $this->fail('Taking a child from a locked node should be rejected');
+        } catch (LogicException) {
+        }
+
+        $this->assertCount(1, $free->getInnerBlocks());
+        $this->assertSame($free, $free->getInnerBlocks()[0]->getParent());
+    }
+
+    public function testNodesHiddenInParsedArraysAreAllCheckedBeforeAnyIsMoved(): void
+    {
+        $target = new BlockNode('core/group', [], [], ['<div></div>']);
+        $free = new BlockNode('core/group', [], [new BlockNode('core/a')]);
+        $locked = new BlockNode('core/group', [], [new BlockNode('core/b')]);
+        $locked->lockChildren();
+
+        try {
+            $target->appendInnerBlocks([
+                ['blockName' => 'core/cover', 'innerBlocks' => [$free->getInnerBlocks()[0]]],
+                ['blockName' => 'core/cover', 'innerBlocks' => [$locked->getInnerBlocks()[0]]],
+            ]);
+            $this->fail('Taking a child from a locked node should be rejected');
+        } catch (LogicException) {
+        }
+
+        $this->assertCount(1, $free->getInnerBlocks());
+        $this->assertSame($free, $free->getInnerBlocks()[0]->getParent());
+        $this->assertSame([], $target->getInnerBlocks());
+        $this->assertSame(['<div></div>'], $target->getInnerContent());
     }
 
     /**
