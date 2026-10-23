@@ -76,7 +76,8 @@ final class PlaceholdersTest extends TestCase
         yield 'two chunks between' => [[null, ' ', ' ', null], false, "\n\n"];
         yield 'only child' => [['<div>', null, '</div>'], false, "\n\n"];
         yield 'no child' => [['<div></div>'], false, "\n\n"];
-        yield 'root' => [[null, null], true, "\n\n"];
+        yield 'root' => [[null, null], true, ''];
+        yield 'root with one child' => [[null], true, ''];
     }
 
     /**

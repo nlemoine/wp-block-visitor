@@ -1419,14 +1419,35 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<div class="wp-block-group">', null, '</div><!-- </div> -->'], $group->getInnerContent());
     }
 
-    public function testExpandingATopLevelBlockSeparatesTheSiblings(): void
+    public function testExpandingATopLevelBlockWritesTheSiblingsAdjacent(): void
     {
         $root = BlockNode::createRoot('<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->');
         $a = $root->getInnerBlocks()[0];
 
         $root->replaceInnerBlockAt(0, $a, BlockNode::createFromString('<!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->'));
 
-        $this->assertSame("<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph -->\n\n<!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->", (string) $root);
+        $this->assertSame('<!-- wp:paragraph --><p>A</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>B</p><!-- /wp:paragraph -->', (string) $root);
+        $this->assertCount(2, \parse_blocks((string) $root));
+    }
+
+    public function testClearContentOnAParsedRootChangesNothing(): void
+    {
+        $html = "<!-- wp:a /-->\n\n<!-- wp:b /-->";
+        $root = BlockNode::createRoot($html);
+
+        $root->clearContent();
+
+        $this->assertSame([null, null, null], $root->getInnerContent());
+        $this->assertSame($html, (string) $root);
+    }
+
+    public function testARootRebuiltFromParsedBlocksSerializesBackByteForByte(): void
+    {
+        $html = "<!-- wp:a /-->\n\n<!-- wp:b /-->\n";
+
+        $root = BlockNode::createRoot('')->setInnerBlocks(\parse_blocks($html));
+
+        $this->assertSame($html, (string) $root);
     }
 
     public function testARootSerializesBackByteForByte(): void
@@ -1755,13 +1776,14 @@ final class BlockNodeTest extends TestCase
         $this->assertSame(['<div>', null, "\n\n", null, '</div>'], $node->getInnerContent());
     }
 
-    public function testATopLevelSiblingGetsABlankLine(): void
+    public function testATopLevelSiblingIsWrittenAdjacentAsSerializeBlocksDoes(): void
     {
         $root = BlockNode::createRoot("<!-- wp:a /-->\n\n<!-- wp:b /-->");
 
         $root->appendInnerBlock(new BlockNode('core/c'));
 
-        $this->assertSame("<!-- wp:a /-->\n\n<!-- wp:b /-->\n\n<!-- wp:c /-->", (string) $root);
+        $this->assertSame("<!-- wp:a /-->\n\n<!-- wp:b /--><!-- wp:c /-->", (string) $root);
+        $this->assertCount(\count($root->getInnerBlocks()), \parse_blocks((string) $root), 'a reparse must give the same top-level blocks');
     }
 
     public function testSerializationMatchesWordPressOnEveryBlockOfTheFixture(): void

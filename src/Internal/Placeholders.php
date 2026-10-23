@@ -12,7 +12,8 @@ use LogicException;
  *
  * Pure functions over the list, so they can be tested with plain arrays. They know nothing of
  * the nodes: the caller passes the number of children, and whether the list is a document
- * root, whose separators are freeform blocks rather than chunks.
+ * root, whose separators are freeform blocks rather than chunks and which therefore never
+ * gets a separator chunk.
  *
  * @internal Used by `BlockNode`; not part of the supported API.
  */
@@ -94,14 +95,16 @@ final class Placeholders
      *
      * Adjacent placeholders mean the list uses none, and a single whitespace chunk is copied as
      * is. Markup between them, or fewer than two children, falls back to the blank line
-     * Gutenberg emits. A root always uses the blank line.
+     * Gutenberg emits. A root never gets one: the parser keeps its blank lines as freeform
+     * children, so a chunk would add to them, and `serialize_blocks()` writes top-level blocks
+     * adjacent as well.
      *
      * @param list<string|null> $content
      */
     public static function separator(array $content, bool $root): string
     {
         if ($root) {
-            return self::SEPARATOR;
+            return '';
         }
 
         $between = null;

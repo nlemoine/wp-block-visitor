@@ -170,7 +170,9 @@ final class BlockNode implements Stringable
      * Creates a root node holding every top-level block of a document.
      *
      * The parser keeps the whitespace between top-level blocks as freeform blocks, so the
-     * root content starts as bare placeholders and serializes back byte for byte.
+     * root content starts as bare placeholders and serializes back byte for byte. For the same
+     * reason a root never gets separator chunks: new top-level siblings are written adjacent,
+     * as `serialize_blocks()` does, so a reparse gives back the same children.
      */
     public static function createRoot(string $html): self
     {
