@@ -19,7 +19,8 @@ use Stringable;
  * - `innerBlocks` is a list.
  * - The k-th `null` chunk of `innerContent` is the placeholder of `innerBlocks[k]`.
  * - Content that came from the parser is only rewritten when the children of this
- *   very node are mutated, so an untouched node serializes byte for byte.
+ *   very node are mutated, so the HTML of an untouched node is written back unchanged;
+ *   its delimiter is re-encoded the way `serialize_block()` encodes it.
  * - Every inserted child gets this node as parent; every removed child is detached.
  *
  * `innerHTML` is not stored: like the WordPress parser, it is the concatenation of the HTML

@@ -1,6 +1,6 @@
 # wp-block-visitor
 
-Traverse and transform WordPress block trees with visitors. Parse post content once, walk every block depth-first, extract data or rewrite blocks in place, then serialize back to block markup. Untouched blocks serialize byte for byte, so a no-op traversal leaves post content unchanged.
+Traverse and transform WordPress block trees with visitors. Parse post content once, walk every block depth-first, extract data or rewrite blocks in place, then serialize back to block markup. Untouched blocks are written back the way `serialize_blocks()` writes them, so a no-op traversal leaves content saved by the editor unchanged.
 
 > [!WARNING]
 > 🚧 Work in progress. The API may change without notice.
@@ -48,13 +48,19 @@ A visitor implements `BlockVisitorInterface`, or extends `AbstractBlockVisitor` 
 ```php
 interface BlockVisitorInterface
 {
+    public function beforeTraverse(BlockNode $root): void;
+
+    public function afterTraverse(BlockNode $root): void;
+
     public function enter(BlockNode $block): BlockNode|Traversal|null;
 
     public function leave(BlockNode $block): BlockNode|array|Traversal|null;
 }
 ```
 
-Return `null` to do nothing. This is the default for both hooks in `AbstractBlockVisitor`, so a read-only visitor only overrides `enter()` and never returns anything else.
+Return `null` to do nothing. This is the default for both node hooks in `AbstractBlockVisitor`, so a read-only visitor only overrides `enter()` and never returns anything else.
+
+`beforeTraverse()` and `afterTraverse()` are called once per pass with the root, before the first node and after the last one. `afterTraverse()` also runs after `Traversal::Stop`, not after an exception. They are the place to reset or flush state a visitor keeps across documents; `AbstractBlockVisitor` implements both as no-ops.
 
 ### Mutation rules
 
@@ -95,7 +101,7 @@ public function leave(BlockNode $block): BlockNode|array|Traversal|null
 
 A `leave()` return value is applied once the whole sibling list has been visited, so later siblings still observe the node it replaces. All the values returned for one sibling list are applied in a single pass, so removing every child of a wide parent stays linear. Attaching a block somewhere takes it away from its former parent, in one pass per former parent, so moving or unwrapping many children stays linear too. A block can never be added under itself or under one of its own descendants.
 
-Exceptions thrown by a visitor propagate unchanged. That is the way to abort the traversal of a document with an error. The tree is then in an undefined state: replacements staged by earlier siblings are not applied, so discard it rather than serializing it.
+Exceptions thrown by a visitor propagate unchanged. That is the way to abort the traversal of a document with an error. The tree is then in an undefined state: replacements staged by earlier siblings are not applied, so discard it rather than serializing it. Every exception the library itself throws implements `n5s\BlockVisitor\Exception\ExceptionInterface` and extends the SPL class of the same name (`LogicException`, `InvalidArgumentException`, `OutOfRangeException`, `RuntimeException`), so a `catch` can tell a contract violation from your own abort.
 
 Returning a node that is the current node's parent or one of its ancestors is rejected too, since it would create a cycle. So is returning a sibling of the current node, from either hook: moving it would shift the siblings still to visit. A list returned from `leave()` must only hold `BlockNode` instances.
 
@@ -119,7 +125,7 @@ BlockNode::wrap($child, 'core/group', $attrs, $before, $after); // takes $child'
 new BlockNode('core/group', $attrs, $children, $innerContent);  // children that have a parent are moved here
 ```
 
-Members tagged `@internal` (`lockChildren()`, `unlockChildren()`, `applyReplacements()`) are public only so the traverser can reach them, and the `n5s\BlockVisitor\Internal` namespace only serves `BlockNode`. They are not part of the supported API and can change in any release.
+The `n5s\BlockVisitor\Internal` namespace only serves `BlockNode`; it is not part of the supported API and can change in any release. The traversal lock is not reachable from outside the library.
 
 ### Reading
 
@@ -168,7 +174,7 @@ $block->removeInnerBlockAt(1);
 $block->setInnerBlocks([$a, $b]);        // same count: content untouched; otherwise keeps the HTML before the first child and after the last one
 ```
 
-`clone $block` copies the whole subtree: the children are copies too, and the copy has no parent until it is inserted somewhere, so changing it never touches the original.
+`clone $block` copies the whole subtree: the children are copies too, and the copy has no parent until it is inserted somewhere, so changing it never touches the original. Attribute values are copied as PHP copies arrays, so an object stored as an attribute value stays shared; the parser never produces one.
 
 New siblings are joined with the separator the list already uses between its first two children: the same whitespace chunk, nothing when they are adjacent, and a blank line (`\n\n`) when the list has fewer than two children or markup between them. At the top level there is never one: WordPress keeps the blank lines between top-level blocks as freeform blocks, so a new top-level block is written right after the previous one, as `serialize_blocks()` does, and a reparse gives back the same blocks.
 
@@ -191,6 +197,8 @@ Block names must look like `paragraph`, `core/paragraph` or `my_plugin/my_block`
 (string) $block;    // block markup, or the whole document for a root node
 $block->toArray();  // parse_blocks() shape
 ```
+
+The `toArray()` of a root node is a block named `@root`; the `parse_blocks()` equivalent of the document is `$root->toArray()['innerBlocks']`.
 
 ## Examples
 
@@ -235,7 +243,7 @@ Memory is the process peak, 7 MB of which is PHP itself. Of the 15 ms of the rea
 
 **What you pay**: a block tree in memory, about the size of the `parse_blocks()` array, and, to read, about 10 percent more time than `WP_Block_Processor` and 45 percent more than `parse_blocks()`, for building the nodes and dispatching the visitor. To write, it costs the same as `WP_Block_Processor` and 35 percent more than `parse_blocks()`, since serializing straight from the nodes makes up for building them.
 
-**What you get**: children can be inserted, removed, replaced or wrapped and `innerContent` stays consistent; untouched blocks serialize byte for byte; visitors compose in passes. `WP_Block_Processor` reads without building anything and is the right tool for scanning, but a modification is a span you splice into the source yourself. `parse_blocks()` gives you the tree and leaves the bookkeeping to you.
+**What you get**: children can be inserted, removed, replaced or wrapped and `innerContent` stays consistent; untouched blocks come back as `serialize_blocks()` would write them; visitors compose in passes. `WP_Block_Processor` reads without building anything and is the right tool for scanning, but a modification is a span you splice into the source yourself. `parse_blocks()` gives you the tree and leaves the bookkeeping to you.
 
 ## Development
 
