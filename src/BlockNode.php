@@ -741,6 +741,36 @@ final class BlockNode implements Stringable
         }
     }
 
+    /**
+     * The lock is left out: a tree serialized from inside a hook comes back outside of any
+     * traversal, so the lock a visitor held on it must not come back with it.
+     *
+     * @return array{blockName: string|null, attrs: array<string, mixed>, innerBlocks: list<BlockNode>, innerContent: list<string|null>, parent: BlockNode|null}
+     */
+    public function __serialize(): array
+    {
+        return [
+            'blockName' => $this->blockName,
+            'attrs' => $this->attrs,
+            'innerBlocks' => $this->innerBlocks,
+            'innerContent' => $this->innerContent,
+            'parent' => $this->parent,
+        ];
+    }
+
+    /**
+     * @param array{blockName: string|null, attrs: array<string, mixed>, innerBlocks: list<BlockNode>, innerContent: list<string|null>, parent: BlockNode|null} $data
+     */
+    public function __unserialize(array $data): void
+    {
+        $this->blockName = $data['blockName'];
+        $this->attrs = $data['attrs'];
+        $this->innerBlocks = $data['innerBlocks'];
+        $this->innerContent = $data['innerContent'];
+        $this->parent = $data['parent'];
+        $this->childrenLocks = 0;
+    }
+
     // -------------------------------------------------------------------------
     //  Serialization
     // -------------------------------------------------------------------------

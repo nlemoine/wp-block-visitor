@@ -928,6 +928,14 @@ HTML
         (new BlockTraverser($outer))->traverse(self::TWO_TOP_LEVEL);
     }
 
+    public function testATraverserSurvivesSerialization(): void
+    {
+        $traverser = \unserialize(\serialize(new BlockTraverser()));
+
+        $this->assertInstanceOf(BlockTraverser::class, $traverser);
+        $this->assertSame('<!-- wp:paragraph /-->', (string) $traverser->traverse('<!-- wp:paragraph /-->'));
+    }
+
     public function testEachPassIsWrappedInBeforeAndAfterTraverse(): void
     {
         $first = $this->logger();

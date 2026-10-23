@@ -26,37 +26,9 @@ final readonly class BlockTraverser
      */
     private array $visitors;
 
-    /**
-     * @var Closure(BlockNode): void
-     */
-    private Closure $lockChildren;
-
-    /**
-     * @var Closure(BlockNode): void
-     */
-    private Closure $unlockChildren;
-
-    /**
-     * @var Closure(BlockNode, array<int, list<BlockNode>>): void
-     */
-    private Closure $applyReplacements;
-
     public function __construct(BlockVisitorInterface ...$visitors)
     {
         $this->visitors = $this->sortByPriority(\array_values($visitors));
-
-        // The lock and the batch apply are reserved to the traverser. Bound to the scope of
-        // BlockNode, these closures reach its private methods without widening its public API.
-        $this->lockChildren = Closure::bind(static function (BlockNode $node): void {
-            $node->lockChildren();
-        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
-        $this->unlockChildren = Closure::bind(static function (BlockNode $node): void {
-            $node->unlockChildren();
-        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
-        $this->applyReplacements = Closure::bind(static function (BlockNode $node, array $replacements): void {
-            /** @var array<int, list<BlockNode>> $replacements */
-            $node->applyReplacements($replacements);
-        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
     }
 
     /**
@@ -99,14 +71,14 @@ final readonly class BlockTraverser
         /** @var array<int, list<BlockNode>> $replacements */
         $replacements = [];
 
-        ($this->lockChildren)($parent);
+        $this->lockChildren($parent);
         try {
             $stopped = $this->visitChildren($parent, $visitor, $replacements);
         } finally {
-            ($this->unlockChildren)($parent);
+            $this->unlockChildren($parent);
         }
 
-        ($this->applyReplacements)($parent, $replacements);
+        $this->applyReplacements($parent, $replacements);
 
         return $stopped;
     }
@@ -167,11 +139,11 @@ final readonly class BlockTraverser
      */
     private function replaceUnlocked(BlockNode $parent, int $index, BlockNode $node): void
     {
-        ($this->unlockChildren)($parent);
+        $this->unlockChildren($parent);
         try {
             $parent->replaceInnerBlockAt($index, $node);
         } finally {
-            ($this->lockChildren)($parent);
+            $this->lockChildren($parent);
         }
     }
 
@@ -224,6 +196,47 @@ final readonly class BlockTraverser
         }
 
         return $nodes;
+    }
+
+    // The lock and the batch apply are reserved to the traverser. Bound to the scope of BlockNode,
+    // the closures below reach its protected methods without widening its public API. They are
+    // built once per process rather than kept on the instance, so a traverser can be serialized.
+
+    private function lockChildren(BlockNode $node): void
+    {
+        /** @var (Closure(BlockNode): void)|null $lock */
+        static $lock = null;
+        $lock ??= Closure::bind(static function (BlockNode $node): void {
+            $node->lockChildren();
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
+
+        $lock($node);
+    }
+
+    private function unlockChildren(BlockNode $node): void
+    {
+        /** @var (Closure(BlockNode): void)|null $unlock */
+        static $unlock = null;
+        $unlock ??= Closure::bind(static function (BlockNode $node): void {
+            $node->unlockChildren();
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
+
+        $unlock($node);
+    }
+
+    /**
+     * @param array<int, list<BlockNode>> $replacements
+     */
+    private function applyReplacements(BlockNode $node, array $replacements): void
+    {
+        /** @var (Closure(BlockNode, array<int, list<BlockNode>>): void)|null $apply */
+        static $apply = null;
+        $apply ??= Closure::bind(static function (BlockNode $node, array $replacements): void {
+            /** @var array<int, list<BlockNode>> $replacements */
+            $node->applyReplacements($replacements);
+        }, null, BlockNode::class) ?? throw new LogicException('Cannot bind to BlockNode.');
+
+        $apply($node, $replacements);
     }
 
     /**

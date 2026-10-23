@@ -1547,6 +1547,18 @@ final class BlockNodeTest extends TestCase
         $this->assertCount(1, $node->getInnerBlocks());
     }
 
+    public function testANodeSerializedWhileLockedComesBackUnlocked(): void
+    {
+        $node = new BlockNode('core/group', [], [new BlockNode('core/a')]);
+        Internals::lockChildren($node);
+
+        $copy = \unserialize(\serialize($node));
+
+        $this->assertInstanceOf(BlockNode::class, $copy);
+        $copy->removeInnerBlockAt(0);
+        $this->assertSame([], $copy->getInnerBlocks());
+    }
+
     public function testTheTraversalInternalsAreNotPartOfThePublicApi(): void
     {
         foreach (['lockChildren', 'unlockChildren', 'applyReplacements'] as $method) {
